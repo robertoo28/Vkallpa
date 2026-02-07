@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+{{CSS_STYLES}}
+</style>
+</head>
+<body>
+    <div class="zoom-controls">
+        <button class="zoom-btn" id="zoomIn" title="Zoom In">+</button>
+        <button class="zoom-btn" id="zoomOut" title="Zoom Out">−</button>
+        <button class="zoom-btn" id="resetZoom" title="Reset">⟲</button>
+        <button class="zoom-btn" id="expandAll" title="Expandir Todo">⊞</button>
+    </div>
+
+    <div class="level-legend">
+        <div style="color: white; font-weight: bold; margin-bottom: 10px; font-size: 13px;">📊 Niveles</div>
+        <div class="level-legend-item">
+            <div class="level-legend-color" style="background: linear-gradient(135deg, #06a5d6, #00c853);"></div>
+            <span>Nivel 0 - Grupo Principal</span>
+        </div>
+        <div class="level-legend-item">
+            <div class="level-legend-color" style="background: linear-gradient(135deg, #e18222, #f5a142);"></div>
+            <span>Nivel 1 - Categoría</span>
+        </div>
+        <div class="level-legend-item">
+            <div class="level-legend-color" style="background: linear-gradient(135deg, #b9ce0e, #d4e84d);"></div>
+            <span>Nivel 2 - Subcategoría</span>
+        </div>
+        <div class="level-legend-item">
+            <div class="level-legend-color" style="background: linear-gradient(135deg, #06a5d6, #4fc3f7);"></div>
+            <span>Nivel 3 - Detalle</span>
+        </div>
+    </div>
+
+    <div class="mind-map-container">
+        <div class="canvas-wrapper" id="canvasWrapper">
+            <div class="canvas" id="canvas">
+                <svg id="connections"></svg>
+                <div id="nodes"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="node-info" id="nodeInfo"></div>
+
+    <script>
+    (function() {
+        const treeData = {{TREE_DATA}};
+        let scale = 0.7;
+        let translateX = 0;
+        let translateY = 0;
+        let isPanning = false;
+        let startX = 0;
+        let startY = 0;
+        let collapsedNodes = new Set();
+
+        const canvas = document.getElementById('canvas');
+        const wrapper = document.getElementById('canvasWrapper');
+        const nodesContainer = document.getElementById('nodes');
+        const svg = document.getElementById('connections');
+        const nodeInfo = document.getElementById('nodeInfo');
+
+        const config = {
+            levelSpacing: 400,
+            verticalSpacing: 120,
+            subtreeSpacing: 180,
+            startX: 100,
+            startY: 300,
+            rootGroupSpacing: 700
+        };
+
+        function updateTransform() {
+            canvas.style.transform = `translate(${translateX}px, ${translateY}px) scale(${scale})`;
+        }
+
+        function createCurvedPath(x1, y1, x2, y2) {
+            const dx = x2 - x1;
+            const dy = y2 - y1;
+            const controlX1 = x1 + dx * 0.5;
+            const controlY1 = y1;
+            const controlX2 = x1 + dx * 0.5;
+            const controlY2 = y2;
+            return `M ${x1} ${y1} C ${controlX1} ${controlY1}, ${controlX2} ${controlY2}, ${x2} ${y2}`;
+        }
+
+        function calculateSubtreeHeight(node) {
+            if (!node.children || node.children.length === 0 || collapsedNodes.has(node.id)) {
+                return config.verticalSpacing;
+            }
+            let totalHeight = 0;
+            node.children.forEach((child, index) => {
+                totalHeight += calculateSubtreeHeight(child);
+                if (index < node.children.length - 1) {
+                    totalHeight += config.subtreeSpacing * 0.3;
+                }
+            });
+            return Math.max(totalHeight, config.verticalSpacing);
+        }
+
+        function calculateNodePositions(node, x, y, level, positions, index = 0, siblingCount = 1) {
+            const nodeId = `node-${level}-${index}-${Math.random().toString(36).substr(2, 9)}`;
+            node.id = nodeId;
+            positions[nodeId] = { x, y, level, node };
+
+            if (node.children && node.children.length > 0 && !collapsedNodes.has(nodeId)) {
+                const childCount = node.children.length;
+                let totalChildrenHeight = 0;
+                const childHeights = node.children.map(child => calculateSubtreeHeight(child));
+                childHeights.forEach((h, i) => {
+                    totalChildrenHeight += h;
+                });
+                totalChildrenHeight += (childCount - 1) * config.subtreeSpacing * 0.5;
+                let currentY = y - totalChildrenHeight / 2;
+
+                node.children.forEach((child, i) => {
+                    const childHeight = childHeights[i];
+                    const childY = currentY + childHeight / 2;
+                    const childX = x + config.levelSpacing;
+                    calculateNodePositions(child, childX, childY, level + 1, positions, i, childCount);
+                    currentY += childHeight + config.subtreeSpacing * 0.5;
+                });
+            }
+            return positions;
+        }
+
+        function getNodeDimensions(level) {
+            switch(level) {
+                case 0: return { width: 240, height: 60 };
+                case 1: return { width: 180, height: 50 };
+                case 2: return { width: 160, height: 46 };
+                default: return { width: 140, height: 42 };
+            }
+        }
+
+        function drawConnections(positions) {
+            Object.values(positions).forEach(pos => {
+                if (pos.node.children && pos.node.children.length > 0 && !collapsedNodes.has(pos.node.id)) {
+                    pos.node.children.forEach(child => {
+                        const childPos = positions[child.id];
+                        if (childPos) {
+                            const line = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                            const parentDim = getNodeDimensions(pos.level);
+                            const childDim = getNodeDimensions(childPos.level);
+                            const startX = pos.x + parentDim.width;
+                            const startY = pos.y + (parentDim.height / 2);
+                            const endX = childPos.x;
+                            const endY = childPos.y + (childDim.height / 2);
+                            const pathData = createCurvedPath(startX, startY, endX, endY);
+                            line.setAttribute('d', pathData);
+                            line.setAttribute('stroke', 'rgba(255, 255, 255, 0.45)');
+                            line.setAttribute('stroke-width', '2.5');
+                            line.setAttribute('fill', 'none');
+                            line.classList.add('connection');
+                            line.classList.add(`level-${pos.level}`);
+                            svg.appendChild(line);
+                        }
+                    });
+                }
+            });
+        }
+
+        function createNodeElement(nodeData, pos) {
+            const nodeDiv = document.createElement('div');
+            nodeDiv.className = `node level-${pos.level}`;
+            nodeDiv.id = pos.node.id;
+            nodeDiv.textContent = nodeData.name;
+            nodeDiv.style.left = `${pos.x}px`;
+            nodeDiv.style.top = `${pos.y}px`;
+
+            if (nodeData.children && nodeData.children.length > 0) {
+                nodeDiv.classList.add('has-children');
+                const collapseBtn = document.createElement('button');
+                collapseBtn.className = 'collapse-btn';
+                collapseBtn.textContent = collapsedNodes.has(pos.node.id) ? '+' : '−';
+                collapseBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    if (collapsedNodes.has(pos.node.id)) {
+                        collapsedNodes.delete(pos.node.id);
+                        collapseBtn.textContent = '−';
+                        nodeDiv.classList.remove('collapsed');
+                    } else {
+                        collapsedNodes.add(pos.node.id);
+                        collapseBtn.textContent = '+';
+                        nodeDiv.classList.add('collapsed');
+                    }
+                    renderTree();
+                };
+                nodeDiv.appendChild(collapseBtn);
+            }
+
+            if (nodeData.info) {
+                nodeDiv.addEventListener('mouseenter', (e) => {
+                    nodeInfo.textContent = nodeData.info;
+                    nodeInfo.style.left = `${e.pageX + 15}px`;
+                    nodeInfo.style.top = `${e.pageY + 15}px`;
+                    nodeInfo.classList.add('visible');
+                });
+                nodeDiv.addEventListener('mousemove', (e) => {
+                    nodeInfo.style.left = `${e.pageX + 15}px`;
+                    nodeInfo.style.top = `${e.pageY + 15}px`;
+                });
+                nodeDiv.addEventListener('mouseleave', () => {
+                    nodeInfo.classList.remove('visible');
+                });
+            }
+
+            const dot = document.createElement('div');
+            dot.className = 'node-dot';
+            dot.style.right = '-7px';
+            dot.style.top = '50%';
+            dot.style.transform = 'translateY(-50%)';
+            nodeDiv.appendChild(dot);
+
+            return nodeDiv;
+        }
+
+        function isNodeVisible(nodeId, positions) {
+            for (const [id, pos] of Object.entries(positions)) {
+                if (collapsedNodes.has(id)) {
+                    const checkDescendant = (node) => {
+                        if (!node.children) return false;
+                        for (const child of node.children) {
+                            if (child.id === nodeId) return true;
+                            if (checkDescendant(child)) return true;
+                        }
+                        return false;
+                    };
+                    if (checkDescendant(pos.node)) {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        }
+
+        function renderTree() {
+            nodesContainer.innerHTML = '';
+            svg.innerHTML = '';
+            const positions = {};
+            let currentY = config.startY;
+
+            treeData.nodes.forEach((rootNode, index) => {
+                const subtreeHeight = calculateSubtreeHeight(rootNode);
+                const rootY = currentY + subtreeHeight / 2;
+                calculateNodePositions(rootNode, config.startX, rootY, 0, positions, index, treeData.nodes.length);
+                currentY += subtreeHeight + config.rootGroupSpacing;
+            });
+
+            drawConnections(positions);
+
+            Object.entries(positions).forEach(([nodeId, pos]) => {
+                if (isNodeVisible(nodeId, positions)) {
+                    const nodeEl = createNodeElement(pos.node, pos);
+                    nodesContainer.appendChild(nodeEl);
+                }
+            });
+        }
+
+        document.getElementById('zoomIn').addEventListener('click', () => {
+            scale = Math.min(scale + 0.15, 3);
+            updateTransform();
+        });
+
+        document.getElementById('zoomOut').addEventListener('click', () => {
+            scale = Math.max(scale - 0.15, 0.2);
+            updateTransform();
+        });
+
+        document.getElementById('resetZoom').addEventListener('click', () => {
+            scale = 0.7;
+            translateX = 0;
+            translateY = 0;
+            updateTransform();
+        });
+
+        document.getElementById('expandAll').addEventListener('click', () => {
+            collapsedNodes.clear();
+            renderTree();
+        });
+
+        wrapper.addEventListener('mousedown', (e) => {
+            if (e.target === wrapper || e.target === canvas) {
+                isPanning = true;
+                startX = e.clientX - translateX;
+                startY = e.clientY - translateY;
+            }
+        });
+
+        wrapper.addEventListener('mousemove', (e) => {
+            if (isPanning) {
+                translateX = e.clientX - startX;
+                translateY = e.clientY - startY;
+                canvas.style.transition = 'none';
+                updateTransform();
+            }
+        });
+
+        wrapper.addEventListener('mouseup', () => {
+            isPanning = false;
+            canvas.style.transition = 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)';
+        });
+
+        wrapper.addEventListener('mouseleave', () => {
+            isPanning = false;
+            canvas.style.transition = 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)';
+        });
+
+        wrapper.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const delta = e.deltaY > 0 ? -0.08 : 0.08;
+            scale = Math.max(0.2, Math.min(3, scale + delta));
+            updateTransform();
+        }, { passive: false });
+
+        renderTree();
+        updateTransform();
+    })();
+    </script>
+</body>
+</html>

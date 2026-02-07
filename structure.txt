@@ -1,0 +1,12 @@
+├── app.py                                          # Main entry point
+├── V-Kallpa.png                                    # Logo
+├── core/                                           # Core application logic
+│   ├── __init__.py
+│   ├── config/                                     # Configuration
+│   │   ├── __init__.py
+│   │   └── navigation.py                           # Navigation config & mappings
+│   └── ui/                                         # UI components
+│       ├── __init__.py
+│       ├── layout.py                               # Sidebar & page layout
+│       └── page_loader.py                          # Dynamic module loading
+└── app_pages/   

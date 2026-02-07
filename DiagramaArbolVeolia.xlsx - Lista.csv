@@ -1,0 +1,29 @@
+Grupo,Descripción del grupo,Colegio,Observaciones
+1,Solo Gas,Collège Gustave Courbet,Sin plan de comptage (cierre del sitio)
+2,Gas + Chaleur básico,Collège Raoul Dufy,Estructura térmica simple
+,,Collège Romain Rolland,Gas y calor con pocos subniveles
+,,Collège La Hève,"Gas simple, calor básico con particularidades"
+,,Collège Jacques Monod,Estructura sencilla salvo algunos derivados
+,,Collège Pablo Picasso,Gas complejo pero calor simple
+,,Collège Claude Bernard,Gas y calor con contadores básicos y derivados simples
+3,Gas + Chaleur + ECS,Collège Pablo Picasso,ECS en cocina
+,,Collège Gérard Philipe,ECS en logements
+,,Collège Henri Wallon,ECS en cocina
+,,Collège Jean Moulin,ECS en gimnasio
+,,Collège Belle Étoile,ECS por instalar en varios puntos
+4,Chaleur multinivel,Collège Léo Lagrange,Dos redes térmicas (Collège y SEGPA)
+,,Collège Gérard Philipe,Red secundaria collège + secundaria logements
+,,Collège La Hève,Red doble con varios circuitos no separables
+,,Collège Romain Rolland,"Circuitos múltiples en calefacción (Constant, Sud, Nord)"
+5,Gas altamente fraccionado,Collège Théophile Gautier,5+ contadores de logements
+,,Collège Eugène Varlin,5+ contadores logements + cocina fraccionada
+,,Collège Gérard Philipe,4+ logements + caldera de accueil
+,,Collège Irène Joliot Curie,Muchos logements + derivaciones
+,,Collège Belle Étoile,"7+ viviendas: RDC, R1A, R1B, R2A, R2B, Accueil"
+6,Circuitos no desagregables,Collège Théophile Gautier,Administración + logements comparten circuito
+,,Collège Eugène Varlin,Circuito collège + logements no separable
+,,Collège La Hève,Circuitos collège + restaurant no separables
+,,Collège Henri Wallon,Calor administración + logements unidos
+,,Collège Belle Étoile,Externat + logements compartidos
+,,Collège Jean Moulin,Misma red alimenta administración y logements
+7,Sin plan definido,Collège Les Acacias,En espera de validación del plan
