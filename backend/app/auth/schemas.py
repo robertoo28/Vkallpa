@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, Field, field_validator
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from ..core.constants import (
     ALL_MODULE_KEYS,
@@ -10,12 +12,114 @@ from ..core.constants import (
 )
 
 
+class TenantGeneralConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    timezone: str = "America/Guayaquil"
+    language: Literal["es", "en", "fr"] = "es"
+    currency: Literal["USD", "EUR", "COP", "PEN", "CLP"] = "USD"
+
+    @field_validator("timezone")
+    @classmethod
+    def validate_timezone(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Timezone is required")
+        return value
+
+
+class TenantEnergyConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tariff_per_kwh: float = Field(default=0.12, ge=0)
+    carbon_factor_kg_per_kwh: float = Field(default=0.25, ge=0)
+    energy_unit: Literal["kWh", "MWh"] = "kWh"
+
+
+class TenantAlertsConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+    consumption_threshold_kwh: float = Field(default=5000, ge=0)
+    anomaly_notifications: bool = True
+
+
+class TenantReportsConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    default_period: Literal["daily", "weekly", "monthly"] = "monthly"
+    default_format: Literal["pdf", "excel"] = "pdf"
+    include_carbon: bool = True
+
+
+class TenantConfigItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    general: TenantGeneralConfig = Field(default_factory=TenantGeneralConfig)
+    energy: TenantEnergyConfig = Field(default_factory=TenantEnergyConfig)
+    alerts: TenantAlertsConfig = Field(default_factory=TenantAlertsConfig)
+    reports: TenantReportsConfig = Field(default_factory=TenantReportsConfig)
+
+
+class TenantGeneralConfigUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    timezone: str | None = None
+    language: Literal["es", "en", "fr"] | None = None
+    currency: Literal["USD", "EUR", "COP", "PEN", "CLP"] | None = None
+
+    @field_validator("timezone")
+    @classmethod
+    def validate_timezone(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        value = value.strip()
+        if not value:
+            raise ValueError("Timezone is required")
+        return value
+
+
+class TenantEnergyConfigUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tariff_per_kwh: float | None = Field(default=None, ge=0)
+    carbon_factor_kg_per_kwh: float | None = Field(default=None, ge=0)
+    energy_unit: Literal["kWh", "MWh"] | None = None
+
+
+class TenantAlertsConfigUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool | None = None
+    consumption_threshold_kwh: float | None = Field(default=None, ge=0)
+    anomaly_notifications: bool | None = None
+
+
+class TenantReportsConfigUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    default_period: Literal["daily", "weekly", "monthly"] | None = None
+    default_format: Literal["pdf", "excel"] | None = None
+    include_carbon: bool | None = None
+
+
+class TenantConfigUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    general: TenantGeneralConfigUpdate | None = None
+    energy: TenantEnergyConfigUpdate | None = None
+    alerts: TenantAlertsConfigUpdate | None = None
+    reports: TenantReportsConfigUpdate | None = None
+
+
 class CompanyRef(BaseModel):
     id: str
+    tenant_id: str
     name: str
     slug: str
     status: str
     allowed_building_ids: list[str] = Field(default_factory=list)
+    config: TenantConfigItem = Field(default_factory=TenantConfigItem)
 
 
 class CurrentUserProfile(BaseModel):
@@ -51,7 +155,6 @@ class InitialAdminItem(BaseModel):
 
 
 class CompanyItem(CompanyRef):
-    tenant_id: str
     user_count: int = 0
     created_by_user_id: str | None = None
     created_at: str | None = None

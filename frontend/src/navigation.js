@@ -60,6 +60,11 @@ export const MENU = [
     items: [
       { label: 'Utilisateurs', path: '/admin/users', moduleKey: 'admin-users' },
       { label: 'Tenants', path: '/admin/companies', moduleKey: 'admin-companies' },
+      {
+        label: 'Configuracion tenant',
+        path: '/admin/tenant-config',
+        moduleKey: 'tenant-settings',
+      },
     ],
   },
 ]

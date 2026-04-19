@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import re
 from secrets import token_urlsafe
+from typing import Any
 import unicodedata
 
 from bson import ObjectId
@@ -32,6 +33,9 @@ from ..core.mongo import (
 from ..core.security import hash_password, verify_password
 from ..services.data_repository import AzureDataError, DataRepository
 
+TenantConfig = dict[str, dict[str, Any]]
+TenantConfigChanges = dict[str, dict[str, dict[str, Any]]]
+
 
 @dataclass(frozen=True)
 class CurrentUserContext:
@@ -41,9 +45,11 @@ class CurrentUserContext:
     role: str
     status: str
     company_id: str | None
+    company_tenant_id: str | None
     company_name: str | None
     company_slug: str | None
     company_status: str | None
+    company_config: dict[str, Any] | None
     module_permissions: list[str]
     effective_building_ids: list[str] | None
     company_allowed_building_ids: list[str]
@@ -103,6 +109,47 @@ def _dedupe_preserve_order(values: list[str] | None) -> list[str]:
             seen.add(value)
             result.append(value)
     return result
+
+
+DEFAULT_TENANT_CONFIG: TenantConfig = {
+    "general": {
+        "timezone": "America/Guayaquil",
+        "language": "es",
+        "currency": "USD",
+    },
+    "energy": {
+        "tariff_per_kwh": 0.12,
+        "carbon_factor_kg_per_kwh": 0.25,
+        "energy_unit": "kWh",
+    },
+    "alerts": {
+        "enabled": True,
+        "consumption_threshold_kwh": 5000,
+        "anomaly_notifications": True,
+    },
+    "reports": {
+        "default_period": "monthly",
+        "default_format": "pdf",
+        "include_carbon": True,
+    },
+}
+
+
+def _serialize_tenant_config(raw_config: dict[str, Any] | None) -> TenantConfig:
+    config = {
+        category: dict(defaults)
+        for category, defaults in DEFAULT_TENANT_CONFIG.items()
+    }
+    if not raw_config:
+        return config
+
+    for category, values in raw_config.items():
+        if category not in config or not isinstance(values, dict):
+            continue
+        for key, value in values.items():
+            if key in config[category]:
+                config[category][key] = value
+    return config
 
 
 def _resolve_company(company_id: str | None):
@@ -203,9 +250,11 @@ def _build_current_user_context(
         role=user_doc["role"],
         status=user_doc["status"],
         company_id=serialize_mongo_id(user_doc.get("company_id")),
+        company_tenant_id=(company_doc or {}).get("tenant_id"),
         company_name=(company_doc or {}).get("name"),
         company_slug=(company_doc or {}).get("slug"),
         company_status=(company_doc or {}).get("status"),
+        company_config=(company_doc or {}).get("config"),
         module_permissions=_build_effective_module_permissions(user_doc),
         effective_building_ids=_build_effective_buildings(user_doc, company_doc),
         company_allowed_building_ids=_dedupe_preserve_order(
@@ -290,10 +339,12 @@ def build_current_user_profile(context: CurrentUserContext) -> dict:
     if context.company_id:
         company_payload = {
             "id": context.company_id,
+            "tenant_id": context.company_tenant_id or context.company_slug or "",
             "name": context.company_name or "",
             "slug": context.company_slug or "",
             "status": context.company_status or COMPANY_STATUS_INACTIVE,
             "allowed_building_ids": context.company_allowed_building_ids,
+            "config": _serialize_tenant_config(context.company_config),
         }
 
     return {
@@ -331,6 +382,7 @@ def _serialize_company(
         "created_at": _serialize_datetime(company_doc.get("created_at")),
         "updated_at": _serialize_datetime(company_doc.get("updated_at")),
         "initial_admin": initial_admin,
+        "config": _serialize_tenant_config(company_doc.get("config")),
     }
 
 
@@ -340,12 +392,14 @@ def _serialize_user(user_doc: dict, company_doc: dict | None) -> dict:
     if company_doc:
         company_payload = {
             "id": serialize_mongo_id(company_doc["_id"]),
+            "tenant_id": company_doc.get("tenant_id") or company_doc["slug"],
             "name": company_doc["name"],
             "slug": company_doc["slug"],
             "status": company_doc["status"],
             "allowed_building_ids": _dedupe_preserve_order(
                 company_doc.get("allowed_building_ids", [])
             ),
+            "config": _serialize_tenant_config(company_doc.get("config")),
         }
     return {
         "id": context.user_id,
@@ -600,6 +654,55 @@ def _build_update_changes(company: dict, update_fields: dict) -> dict:
     return changes
 
 
+def _build_config_changes(
+    current_config: dict[str, Any],
+    update_fields: dict[str, dict[str, Any]],
+) -> tuple[TenantConfig, TenantConfigChanges]:
+    next_config = _serialize_tenant_config(current_config)
+    changes: TenantConfigChanges = {}
+
+    for category, values in update_fields.items():
+        category_changes: dict[str, dict[str, Any]] = {}
+        for field, value in values.items():
+            old_value = next_config[category].get(field)
+            if old_value != value:
+                category_changes[field] = {"old": old_value, "new": value}
+            next_config[category][field] = value
+        if category_changes:
+            changes[category] = category_changes
+
+    return next_config, changes
+
+
+def _build_config_update(payload: Any) -> dict[str, dict[str, Any]]:
+    update_fields = payload.model_dump(exclude_unset=True, exclude_none=True)
+    update_fields = {
+        category: values
+        for category, values in update_fields.items()
+        if values
+    }
+    if not update_fields:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="At least one config category is required",
+        )
+    return update_fields
+
+
+def _assert_tenant_config_access(
+    actor: CurrentUserContext,
+    company: dict,
+) -> None:
+    if actor.role == ROLE_VKALLPA_ADMIN:
+        return
+    if (
+        actor.role == ROLE_COMPANY_ADMIN
+        and serialize_mongo_id(company["_id"]) == actor.company_id
+    ):
+        return
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+
+
 def list_companies(actor: CurrentUserContext) -> list[dict]:
     if actor.role != ROLE_VKALLPA_ADMIN:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
@@ -763,6 +866,47 @@ def update_company(
             {"changes": changes},
         )
     return _serialize_company(updated or company, user_count=user_count)
+
+
+def get_tenant_config(actor: CurrentUserContext, tenant_id: str) -> dict:
+    """Return the operational configuration for a tenant."""
+    company = _get_company_or_404(tenant_id)
+    _assert_tenant_config_access(actor, company)
+    return _serialize_tenant_config(company.get("config"))
+
+
+def update_tenant_config(
+    actor: CurrentUserContext,
+    tenant_id: str,
+    payload: Any,
+) -> dict:
+    """Update tenant operational settings and record an audit log."""
+    companies = get_companies_collection()
+    company = _get_company_or_404(tenant_id)
+    _assert_tenant_config_access(actor, company)
+
+    update_fields = _build_config_update(payload)
+    next_config, changes = _build_config_changes(
+        company.get("config", {}),
+        update_fields,
+    )
+
+    if changes:
+        companies.update_one(
+            {"_id": company["_id"]},
+            {"$set": {"config": next_config, "updated_at": _utcnow()}},
+        )
+        updated = companies.find_one({"_id": company["_id"]}) or company
+        _record_audit_log(
+            actor,
+            updated.get("tenant_id") or updated["slug"],
+            "tenant.config_updated",
+            serialize_mongo_id(company["_id"]) or "",
+            {"changes": changes},
+        )
+        return _serialize_tenant_config(updated.get("config"))
+
+    return _serialize_tenant_config(company.get("config"))
 
 
 def list_users(actor: CurrentUserContext) -> list[dict]:
