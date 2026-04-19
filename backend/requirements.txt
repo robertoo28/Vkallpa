@@ -1,0 +1,16 @@
+﻿fastapi
+uvicorn[standard]
+pydantic-settings
+python-jose[cryptography]
+passlib[bcrypt]
+cachetools
+azure-storage-blob
+pandas
+numpy
+scipy
+openpyxl
+python-dotenv
+pymongo
+pytest
+mongomock
+httpx

@@ -1,0 +1,15 @@
+services:
+  mongo:
+    image: mongo:7
+    container_name: vkallpa-mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USERNAME:-vkallpa}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:-vkallpa_dev}
+    volumes:
+      - mongo_data:/data/db
+
+volumes:
+  mongo_data:
