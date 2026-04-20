@@ -14,6 +14,7 @@ import Nilm from './pages/Nilm.jsx'
 import Profils from './pages/Profils.jsx'
 import Puissance from './pages/Puissance.jsx'
 import Stub from './pages/Stub.jsx'
+import TenantConfigAdmin from './pages/TenantConfigAdmin.jsx'
 import UsersAdmin from './pages/UsersAdmin.jsx'
 import { getDefaultPath, hasModuleAccess } from './navigation.js'
 
@@ -204,6 +205,14 @@ const AppRoutes = () => {
           element={
             <RequireModule moduleKey="admin-companies">
               <CompaniesAdmin />
+            </RequireModule>
+          }
+        />
+        <Route
+          path="admin/tenant-config"
+          element={
+            <RequireModule moduleKey="tenant-settings">
+              <TenantConfigAdmin />
             </RequireModule>
           }
         />

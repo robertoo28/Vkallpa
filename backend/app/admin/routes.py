@@ -10,6 +10,8 @@ from ..auth.schemas import (
     CompanyListResponse,
     CreateCompanyRequest,
     CreateUserRequest,
+    TenantConfigItem,
+    TenantConfigUpdate,
     UpdateCompanyRequest,
     UpdateUserRequest,
     UserItem,
@@ -20,11 +22,14 @@ from ..auth.service import (
     create_company,
     create_user,
     delete_user,
+    get_tenant_config,
     list_companies,
     list_users,
     update_company,
+    update_tenant_config,
     update_user,
 )
+from ..core.constants import TENANT_SETTINGS_MODULE_KEY
 from ..services.data_repository import DataRepository
 
 
@@ -75,6 +80,37 @@ def put_tenant(
 ) -> CompanyItem:
     return CompanyItem.model_validate(
         update_company(current_user, tenant_id, payload, repo)
+    )
+
+
+@tenants_router.get(
+    "/{tenant_id}/config",
+    response_model=TenantConfigItem,
+    dependencies=[Depends(require_module_access(TENANT_SETTINGS_MODULE_KEY))],
+)
+def get_tenant_operational_config(
+    tenant_id: str,
+    current_user: CurrentUserContext = Depends(get_current_user),
+) -> TenantConfigItem:
+    """Read operational configuration for a tenant."""
+    return TenantConfigItem.model_validate(
+        get_tenant_config(current_user, tenant_id)
+    )
+
+
+@tenants_router.patch(
+    "/{tenant_id}/config",
+    response_model=TenantConfigItem,
+    dependencies=[Depends(require_module_access(TENANT_SETTINGS_MODULE_KEY))],
+)
+def patch_tenant_operational_config(
+    tenant_id: str,
+    payload: TenantConfigUpdate,
+    current_user: CurrentUserContext = Depends(get_current_user),
+) -> TenantConfigItem:
+    """Update operational configuration for a tenant."""
+    return TenantConfigItem.model_validate(
+        update_tenant_config(current_user, tenant_id, payload)
     )
 
 

@@ -196,6 +196,116 @@ def test_update_tenant_records_audit_log(client: TestClient):
     assert audit_log["details"]["changes"]["status"]["new"] == "inactive"
 
 
+def test_update_tenant_config_validates_categories_and_records_audit_log(
+    client: TestClient,
+):
+    admin = login(client, "admin", "admin")
+    admin_headers = auth_headers(admin["access_token"])
+
+    created = client.post(
+        "/api/v1/tenants",
+        headers=admin_headers,
+        json={
+            "tenant_id": "config-power",
+            "name": "Config Power",
+            "allowed_building_ids": ["alpha.xlsx"],
+            "admin_username": "config-admin",
+            "admin_full_name": "Config Admin",
+            "admin_password": "secret1",
+        },
+    )
+    assert created.status_code == 201, created.text
+
+    updated = client.patch(
+        "/api/v1/tenants/config-power/config",
+        headers=admin_headers,
+        json={
+            "general": {"timezone": "America/Lima", "language": "es"},
+            "energy": {"tariff_per_kwh": 0.18},
+            "reports": {"default_period": "weekly"},
+        },
+    )
+    assert updated.status_code == 200, updated.text
+    payload = updated.json()
+    assert payload["general"]["timezone"] == "America/Lima"
+    assert payload["energy"]["tariff_per_kwh"] == 0.18
+    assert payload["reports"]["default_period"] == "weekly"
+
+    audit_log = get_audit_logs_collection().find_one(
+        {"tenant_id": "config-power", "action": "tenant.config_updated"}
+    )
+    assert audit_log is not None
+    assert audit_log["details"]["changes"]["energy"]["tariff_per_kwh"] == {
+        "old": 0.12,
+        "new": 0.18,
+    }
+
+    invalid_category = client.patch(
+        "/api/v1/tenants/config-power/config",
+        headers=admin_headers,
+        json={"billing": {"enabled": True}},
+    )
+    assert invalid_category.status_code == 422
+
+    invalid_value = client.patch(
+        "/api/v1/tenants/config-power/config",
+        headers=admin_headers,
+        json={"energy": {"tariff_per_kwh": -1}},
+    )
+    assert invalid_value.status_code == 422
+
+
+def test_company_admin_updates_only_own_tenant_config(client: TestClient):
+    admin = login(client, "admin", "admin")
+    admin_headers = auth_headers(admin["access_token"])
+
+    own_tenant = client.post(
+        "/api/v1/tenants",
+        headers=admin_headers,
+        json={
+            "tenant_id": "own-tenant",
+            "name": "Own Tenant",
+            "allowed_building_ids": ["alpha.xlsx"],
+            "admin_username": "own-admin",
+            "admin_full_name": "Own Admin",
+            "admin_password": "secret1",
+        },
+    )
+    assert own_tenant.status_code == 201, own_tenant.text
+
+    other_tenant = client.post(
+        "/api/v1/tenants",
+        headers=admin_headers,
+        json={
+            "tenant_id": "other-tenant",
+            "name": "Other Tenant",
+            "allowed_building_ids": ["beta.xlsx"],
+            "admin_username": "other-admin",
+            "admin_full_name": "Other Admin",
+            "admin_password": "secret2",
+        },
+    )
+    assert other_tenant.status_code == 201, other_tenant.text
+
+    company_admin = login(client, "own-admin", "secret1")
+    company_admin_headers = auth_headers(company_admin["access_token"])
+
+    own_update = client.patch(
+        "/api/v1/tenants/own-tenant/config",
+        headers=company_admin_headers,
+        json={"alerts": {"enabled": False}},
+    )
+    assert own_update.status_code == 200, own_update.text
+    assert own_update.json()["alerts"]["enabled"] is False
+
+    forbidden = client.patch(
+        "/api/v1/tenants/other-tenant/config",
+        headers=company_admin_headers,
+        json={"alerts": {"enabled": False}},
+    )
+    assert forbidden.status_code == 403
+
+
 def test_vkallpa_admin_and_company_admin_manage_users_by_scope(client: TestClient):
     admin = login(client, "admin", "admin")
     admin_headers = auth_headers(admin["access_token"])

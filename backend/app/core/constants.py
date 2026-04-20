@@ -9,6 +9,7 @@ USER_STATUS_INACTIVE = "inactive"
 
 COMPANY_STATUS_ACTIVE = "active"
 COMPANY_STATUS_INACTIVE = "inactive"
+TENANT_SETTINGS_MODULE_KEY = "tenant-settings"
 
 BUSINESS_MODULES = [
     {"key": "accueil", "label": "Accueil"},
@@ -31,6 +32,7 @@ BUSINESS_MODULES = [
 ADMIN_MODULES = [
     {"key": "admin-users", "label": "Utilisateurs"},
     {"key": "admin-companies", "label": "Entreprises"},
+    {"key": TENANT_SETTINGS_MODULE_KEY, "label": "Configuration tenant"},
 ]
 
 ALL_MODULES = [*BUSINESS_MODULES, *ADMIN_MODULES]
@@ -39,7 +41,9 @@ ADMIN_MODULE_KEYS = {item["key"] for item in ADMIN_MODULES}
 ALL_MODULE_KEYS = {item["key"] for item in ALL_MODULES}
 
 VKALLPA_ADMIN_MODULE_KEYS = sorted(ALL_MODULE_KEYS)
-COMPANY_ADMIN_MODULE_KEYS = sorted(BUSINESS_MODULE_KEYS | {"admin-users"})
+COMPANY_ADMIN_MODULE_KEYS = sorted(
+    BUSINESS_MODULE_KEYS | {"admin-users", TENANT_SETTINGS_MODULE_KEY}
+)
 DEFAULT_COMPANY_USER_MODULE_KEYS = ["accueil", "monitoring"]
 
 USER_ROLE_VALUES = {ROLE_VKALLPA_ADMIN, ROLE_COMPANY_ADMIN, ROLE_COMPANY_USER}
