@@ -46,7 +46,7 @@ const Batiments = () => {
     try {
       const res = await apiFetch(`/traitement/batiments?${params.toString()}`)
       setData(res)
-    } catch (err) {
+    } catch {
       setError('Impossible de charger la comparaison.')
     }
   }

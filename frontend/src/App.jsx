@@ -1,6 +1,6 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 
-import { useAuth } from './auth/AuthContext.jsx'
+import { useAuth } from './auth/useAuth.js'
 import Layout from './components/Layout.jsx'
 import Accueil from './pages/Accueil.jsx'
 import Batiments from './pages/Batiments.jsx'
@@ -16,7 +16,7 @@ import Puissance from './pages/Puissance.jsx'
 import Stub from './pages/Stub.jsx'
 import TenantConfigAdmin from './pages/TenantConfigAdmin.jsx'
 import UsersAdmin from './pages/UsersAdmin.jsx'
-import { getDefaultPath, hasModuleAccess } from './navigation.js'
+import { getDefaultPath, hasModuleAccess, hasRoleAccess } from './navigation.js'
 
 const LoadingScreen = () => (
   <div className="loading-page">
@@ -24,7 +24,7 @@ const LoadingScreen = () => (
   </div>
 )
 
-const RequireAuth = ({ children }) => {
+const PrivateRoute = ({ allowedRoles = [], moduleKey = null, children }) => {
   const { user, loading } = useAuth()
 
   if (loading) {
@@ -35,21 +35,11 @@ const RequireAuth = ({ children }) => {
     return <Navigate to="/login" replace />
   }
 
-  return children
-}
-
-const RequireModule = ({ moduleKey, children }) => {
-  const { user, loading } = useAuth()
-
-  if (loading) {
-    return <LoadingScreen />
+  if (!hasRoleAccess(user, allowedRoles)) {
+    return <Navigate to={getDefaultPath(user)} replace />
   }
 
-  if (!user) {
-    return <Navigate to="/login" replace />
-  }
-
-  if (!hasModuleAccess(user, moduleKey)) {
+  if (moduleKey && !hasModuleAccess(user, moduleKey)) {
     return <Navigate to={getDefaultPath(user)} replace />
   }
 
@@ -66,154 +56,163 @@ const AppRoutes = () => {
       <Route
         path="/"
         element={
-          <RequireAuth>
+          <PrivateRoute>
             <Layout />
-          </RequireAuth>
+          </PrivateRoute>
         }
       >
         <Route index element={<Navigate to={defaultPath} replace />} />
         <Route
           path="accueil"
           element={
-            <RequireModule moduleKey="accueil">
+            <PrivateRoute moduleKey="accueil">
               <Accueil />
-            </RequireModule>
+            </PrivateRoute>
           }
         />
         <Route
           path="parc-immobilier"
           element={
-            <RequireModule moduleKey="parc-immobilier">
+            <PrivateRoute moduleKey="parc-immobilier">
               <DashboardMulti />
-            </RequireModule>
+            </PrivateRoute>
           }
         />
         <Route
           path="monitoring"
           element={
-            <RequireModule moduleKey="monitoring">
+            <PrivateRoute moduleKey="monitoring">
               <Monitoring />
-            </RequireModule>
+            </PrivateRoute>
           }
         />
         <Route
           path="profils"
           element={
-            <RequireModule moduleKey="profils">
+            <PrivateRoute moduleKey="profils">
               <Profils />
-            </RequireModule>
+            </PrivateRoute>
           }
         />
         <Route
           path="puissance-max"
           element={
-            <RequireModule moduleKey="puissance-max">
+            <PrivateRoute moduleKey="puissance-max">
               <Puissance />
-            </RequireModule>
+            </PrivateRoute>
           }
         />
         <Route
           path="comparaison-puissance"
           element={
-            <RequireModule moduleKey="comparaison-puissance">
+            <PrivateRoute moduleKey="comparaison-puissance">
               <ComparaisonPuissance />
-            </RequireModule>
+            </PrivateRoute>
           }
         />
         <Route
           path="comparaison-periode"
           element={
-            <RequireModule moduleKey="comparaison-periode">
+            <PrivateRoute moduleKey="comparaison-periode">
               <ComparaisonPeriode />
-            </RequireModule>
+            </PrivateRoute>
           }
         />
         <Route
           path="comparatif-batiments"
           element={
-            <RequireModule moduleKey="comparatif-batiments">
+            <PrivateRoute moduleKey="comparatif-batiments">
               <Batiments />
-            </RequireModule>
+            </PrivateRoute>
           }
         />
         <Route
           path="nilm"
           element={
-            <RequireModule moduleKey="nilm">
+            <PrivateRoute moduleKey="nilm">
               <Nilm />
-            </RequireModule>
+            </PrivateRoute>
           }
         />
         <Route
           path="meteo"
           element={
-            <RequireModule moduleKey="meteo">
+            <PrivateRoute moduleKey="meteo">
               <Stub title="Meteo" />
-            </RequireModule>
+            </PrivateRoute>
           }
         />
         <Route
           path="carbone"
           element={
-            <RequireModule moduleKey="carbone">
+            <PrivateRoute moduleKey="carbone">
               <Stub title="Carbone" />
-            </RequireModule>
+            </PrivateRoute>
           }
         />
         <Route
           path="autoconsommation"
           element={
-            <RequireModule moduleKey="autoconsommation">
+            <PrivateRoute moduleKey="autoconsommation">
               <Stub title="Autoconsommation" />
-            </RequireModule>
+            </PrivateRoute>
           }
         />
         <Route
           path="changepoints"
           element={
-            <RequireModule moduleKey="changepoints">
+            <PrivateRoute moduleKey="changepoints">
               <Stub title="Changepoints" />
-            </RequireModule>
+            </PrivateRoute>
           }
         />
         <Route
           path="anomalies"
           element={
-            <RequireModule moduleKey="anomalies">
+            <PrivateRoute moduleKey="anomalies">
               <Stub title="Anomalies" />
-            </RequireModule>
+            </PrivateRoute>
           }
         />
         <Route
           path="prediction"
           element={
-            <RequireModule moduleKey="prediction">
+            <PrivateRoute moduleKey="prediction">
               <Stub title="Prediction" />
-            </RequireModule>
+            </PrivateRoute>
           }
         />
         <Route
           path="admin/users"
           element={
-            <RequireModule moduleKey="admin-users">
+            <PrivateRoute
+              allowedRoles={['vkallpa_admin', 'company_admin']}
+              moduleKey="admin-users"
+            >
               <UsersAdmin />
-            </RequireModule>
+            </PrivateRoute>
           }
         />
         <Route
           path="admin/companies"
           element={
-            <RequireModule moduleKey="admin-companies">
+            <PrivateRoute
+              allowedRoles={['vkallpa_admin']}
+              moduleKey="admin-companies"
+            >
               <CompaniesAdmin />
-            </RequireModule>
+            </PrivateRoute>
           }
         />
         <Route
           path="admin/tenant-config"
           element={
-            <RequireModule moduleKey="tenant-settings">
+            <PrivateRoute
+              allowedRoles={['vkallpa_admin', 'company_admin']}
+              moduleKey="tenant-settings"
+            >
               <TenantConfigAdmin />
-            </RequireModule>
+            </PrivateRoute>
           }
         />
       </Route>

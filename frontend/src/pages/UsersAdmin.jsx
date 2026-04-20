@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 
 import { apiFetch } from '../api/client.js'
-import { useAuth } from '../auth/AuthContext.jsx'
+import { useAuth } from '../auth/useAuth.js'
 import { BUSINESS_MODULE_OPTIONS, getRoleLabel } from '../navigation.js'
 
 const makeEmptyForm = (user) => ({

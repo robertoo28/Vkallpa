@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from ..core.constants import (
     ALL_MODULE_KEYS,
@@ -136,15 +136,36 @@ class CurrentUserProfile(BaseModel):
 
 
 class LoginRequest(BaseModel):
-    username: str
+    username: str | None = None
+    email: str | None = None
     password: str
+
+    @model_validator(mode="after")
+    def validate_identifier(self) -> "LoginRequest":
+        username = self.username.strip() if self.username else None
+        email = self.email.strip() if self.email else None
+        if not username and not email:
+            raise ValueError("Email is required")
+        self.username = username
+        self.email = email
+        return self
+
+    @property
+    def identifier(self) -> str:
+        return self.email or self.username or ""
 
 
 class LoginResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     expires_in: int
+    refresh_token: str
+    refresh_expires_in: int
     user: CurrentUserProfile
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: str
 
 
 class InitialAdminItem(BaseModel):

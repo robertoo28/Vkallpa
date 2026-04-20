@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 
 import { apiFetch } from '../api/client.js'
-import { useAuth } from '../auth/AuthContext.jsx'
+import { useAuth } from '../auth/useAuth.js'
 
 const defaultConfig = {
   general: {

@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
-import { useAuth } from '../auth/AuthContext.jsx'
+import { useAuth } from '../auth/useAuth.js'
 import logo from '../assets/V-Kallpa.png'
 import { getDefaultPath } from '../navigation.js'
 
 const Login = () => {
   const navigate = useNavigate()
   const { login, user } = useAuth()
-  const [username, setUsername] = useState('admin')
+  const [email, setEmail] = useState('admin')
   const [password, setPassword] = useState('admin')
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -25,10 +25,10 @@ const Login = () => {
     setError(null)
 
     try {
-      const profile = await login(username, password)
+      const profile = await login(email, password)
       navigate(getDefaultPath(profile), { replace: true })
     } catch {
-      setError('Identifiants invalides ou serveur indisponible.')
+      setError('Credenciales invalidas o servidor no disponible.')
     } finally {
       setLoading(false)
     }
@@ -38,20 +38,20 @@ const Login = () => {
     <div className="login-page">
       <div className="login-panel">
         <img src={logo} alt="V-Kallpa" className="login-logo" />
-        <h1>Bienvenue</h1>
-        <p>Accedez a la plateforme d analyse energetique.</p>
+        <h1>Bienvenido</h1>
+        <p>Accede a la plataforma de analitica energetica.</p>
         <form onSubmit={handleSubmit} className="login-form">
           <label>
-            Utilisateur
+            Email
             <input
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder="admin"
-              autoComplete="username"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="admin@empresa.com"
+              autoComplete="email"
             />
           </label>
           <label>
-            Mot de passe
+            Contrasena
             <input
               type="password"
               value={password}
@@ -62,16 +62,16 @@ const Login = () => {
           </label>
           {error && <div className="login-error">{error}</div>}
           <button type="submit" disabled={loading}>
-            {loading ? 'Connexion...' : 'Se connecter'}
+            {loading ? 'Ingresando...' : 'Iniciar sesion'}
           </button>
         </form>
       </div>
       <div className="login-splash">
         <div className="login-splash-card">
-          <h2>Suivi energie & performance</h2>
+          <h2>Energia y performance</h2>
           <p>
-            Visualisez la consommation, identifiez les anomalies et pilotez vos
-            batiments en temps reel.
+            Visualiza el consumo, identifica anomalias y gestiona tus edificios
+            en tiempo real.
           </p>
           <div className="login-splash-metric">
             <span>12%</span>

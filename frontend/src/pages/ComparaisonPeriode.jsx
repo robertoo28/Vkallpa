@@ -48,7 +48,7 @@ const ComparaisonPeriode = () => {
         )}&start_a=${startA}&end_a=${endA}&start_b=${startB}&end_b=${endB}&metric=${metric}&normalize_days=${normalize}&exclude_weekends=${excludeWeekends}`,
       )
       setData(res)
-    } catch (err) {
+    } catch {
       setError('Impossible de comparer les périodes.')
     }
   }

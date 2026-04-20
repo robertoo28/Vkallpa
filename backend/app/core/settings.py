@@ -55,6 +55,13 @@ class Settings(BaseSettings):
         60,
         validation_alias=AliasChoices("JWT_EXPIRE_MINUTES", "jwt_expire_minutes"),
     )
+    jwt_refresh_expire_minutes: int = Field(
+        10080,
+        validation_alias=AliasChoices(
+            "JWT_REFRESH_EXPIRE_MINUTES",
+            "jwt_refresh_expire_minutes",
+        ),
+    )
     jwt_algorithm: str = "HS256"
     cors_allow_origins: List[str] = ["*"]
 
@@ -65,4 +72,4 @@ class Settings(BaseSettings):
     )
 
 
-settings = Settings()
+settings = Settings()  # pyright: ignore[reportCallIssue]
