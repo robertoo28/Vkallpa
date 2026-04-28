@@ -8,6 +8,7 @@ import CompaniesAdmin from './pages/CompaniesAdmin.jsx'
 import ComparaisonPeriode from './pages/ComparaisonPeriode.jsx'
 import ComparaisonPuissance from './pages/ComparaisonPuissance.jsx'
 import DashboardMulti from './pages/DashboardMulti.jsx'
+import DataSourcesAdmin from './pages/DataSourcesAdmin.jsx'
 import Login from './pages/Login.jsx'
 import Monitoring from './pages/Monitoring.jsx'
 import Nilm from './pages/Nilm.jsx'
@@ -212,6 +213,17 @@ const AppRoutes = () => {
               moduleKey="tenant-settings"
             >
               <TenantConfigAdmin />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="admin/data-sources"
+          element={
+            <PrivateRoute
+              allowedRoles={['vkallpa_admin', 'company_admin']}
+              moduleKey="data-sources"
+            >
+              <DataSourcesAdmin />
             </PrivateRoute>
           }
         />

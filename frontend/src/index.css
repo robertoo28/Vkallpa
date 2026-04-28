@@ -673,8 +673,129 @@ button:disabled {
   color: #9a3a3a;
 }
 
+.data-source-layout {
+  display: grid;
+  grid-template-columns: minmax(320px, 1fr) minmax(320px, 0.8fr);
+  gap: 24px;
+}
+
+.source-file-list {
+  display: grid;
+  gap: 8px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.file-button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  border: 1px solid #d8e1e3;
+  border-radius: 12px;
+  background: #f7fafb;
+  color: var(--text);
+  cursor: pointer;
+  padding: 10px 12px;
+  text-align: left;
+}
+
+.file-button.active {
+  border-color: var(--teal);
+  background: rgba(12, 50, 60, 0.08);
+}
+
+.file-button span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.file-button strong {
+  color: var(--teal);
+  font-size: 12px;
+}
+
+.preview-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+  color: var(--muted);
+}
+
+.preview-meta span:first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.mapping-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+.mapping-grid label {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.validation-list {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.validation-item {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.4fr) minmax(140px, 0.6fr) 1fr;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(200, 88, 88, 0.1);
+  color: #8d3333;
+}
+
+.validation-item p {
+  margin: 0;
+}
+
+.preview-table-wrap {
+  overflow-x: auto;
+}
+
+.preview-table {
+  width: 100%;
+  min-width: 680px;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.preview-table th,
+.preview-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #e2e8e9;
+  text-align: left;
+  vertical-align: top;
+}
+
+.preview-table th {
+  color: var(--teal);
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
 @media (max-width: 1024px) {
   .app-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .data-source-layout {
     grid-template-columns: 1fr;
   }
 
