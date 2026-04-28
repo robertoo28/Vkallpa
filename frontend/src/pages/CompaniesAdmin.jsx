@@ -9,6 +9,7 @@ const emptyForm = {
   name: '',
   slug: '',
   status: 'active',
+  user_quota: 25,
   allowed_building_ids: [],
   admin_username: '',
   admin_full_name: '',
@@ -59,6 +60,7 @@ const CompaniesAdmin = () => {
       name: form.name,
       slug: form.slug || null,
       status: form.status,
+      user_quota: Number(form.user_quota),
       allowed_building_ids: form.allowed_building_ids,
     }
 
@@ -114,6 +116,7 @@ const CompaniesAdmin = () => {
       name: tenant.name,
       slug: tenant.slug,
       status: tenant.status,
+      user_quota: tenant.user_quota,
       allowed_building_ids: tenant.allowed_building_ids,
       admin_username: '',
       admin_full_name: '',
@@ -176,6 +179,18 @@ const CompaniesAdmin = () => {
               <option value="active">Activo</option>
               <option value="inactive">Inactivo</option>
             </select>
+          </div>
+          <div>
+            <label>Cupo usuarios</label>
+            <input
+              type="number"
+              min="1"
+              value={form.user_quota}
+              onChange={(e) =>
+                setForm((current) => ({ ...current, user_quota: e.target.value }))
+              }
+              required
+            />
           </div>
 
           {!isEditing && (
@@ -260,6 +275,7 @@ const CompaniesAdmin = () => {
             <span>Estado</span>
             <span>Edificios</span>
             <span>Usuarios</span>
+            <span>Cupo</span>
             <span>Accion</span>
           </div>
           {tenants.map((tenant) => (
@@ -278,6 +294,7 @@ const CompaniesAdmin = () => {
                   : 'Sin edificios'}
               </span>
               <span>{tenant.user_count}</span>
+              <span>{tenant.user_quota}</span>
               <span>
                 <button className="btn-secondary small" onClick={() => handleEdit(tenant)}>
                   Editar

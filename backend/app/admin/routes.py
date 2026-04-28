@@ -35,6 +35,7 @@ from ..services.data_repository import DataRepository
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 tenants_router = APIRouter(prefix="/tenants", tags=["tenants"])
+users_router = APIRouter(prefix="/users", tags=["users"])
 
 
 @tenants_router.get(
@@ -47,8 +48,7 @@ def get_tenants(
 ) -> CompanyListResponse:
     return CompanyListResponse(
         items=[
-            CompanyItem.model_validate(item)
-            for item in list_companies(current_user)
+            CompanyItem.model_validate(item) for item in list_companies(current_user)
         ]
     )
 
@@ -93,9 +93,7 @@ def get_tenant_operational_config(
     current_user: CurrentUserContext = Depends(get_current_user),
 ) -> TenantConfigItem:
     """Read operational configuration for a tenant."""
-    return TenantConfigItem.model_validate(
-        get_tenant_config(current_user, tenant_id)
-    )
+    return TenantConfigItem.model_validate(get_tenant_config(current_user, tenant_id))
 
 
 @tenants_router.patch(
@@ -124,8 +122,7 @@ def get_companies(
 ) -> CompanyListResponse:
     return CompanyListResponse(
         items=[
-            CompanyItem.model_validate(item)
-            for item in list_companies(current_user)
+            CompanyItem.model_validate(item) for item in list_companies(current_user)
         ]
     )
 
@@ -160,6 +157,39 @@ def patch_company(
     )
 
 
+def _build_user_list_response(
+    current_user: CurrentUserContext,
+) -> UserListResponse:
+    return UserListResponse(
+        items=[UserItem.model_validate(item) for item in list_users(current_user)]
+    )
+
+
+def _create_user_response(
+    payload: CreateUserRequest,
+    current_user: CurrentUserContext,
+    repo: DataRepository,
+) -> UserItem:
+    return UserItem.model_validate(create_user(current_user, payload, repo))
+
+
+def _update_user_response(
+    user_id: str,
+    payload: UpdateUserRequest,
+    current_user: CurrentUserContext,
+    repo: DataRepository,
+) -> UserItem:
+    return UserItem.model_validate(update_user(current_user, user_id, payload, repo))
+
+
+def _deactivate_user_response(
+    user_id: str,
+    current_user: CurrentUserContext,
+) -> Response:
+    delete_user(current_user, user_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.get(
     "/users",
     response_model=UserListResponse,
@@ -168,9 +198,18 @@ def patch_company(
 def get_users(
     current_user: CurrentUserContext = Depends(get_current_user),
 ) -> UserListResponse:
-    return UserListResponse(
-        items=[UserItem.model_validate(item) for item in list_users(current_user)]
-    )
+    return _build_user_list_response(current_user)
+
+
+@users_router.get(
+    "",
+    response_model=UserListResponse,
+    dependencies=[Depends(require_module_access("admin-users"))],
+)
+def get_users_direct(
+    current_user: CurrentUserContext = Depends(get_current_user),
+) -> UserListResponse:
+    return _build_user_list_response(current_user)
 
 
 @router.post(
@@ -184,7 +223,21 @@ def post_user(
     current_user: CurrentUserContext = Depends(get_current_user),
     repo: DataRepository = Depends(get_data_repository),
 ) -> UserItem:
-    return UserItem.model_validate(create_user(current_user, payload, repo))
+    return _create_user_response(payload, current_user, repo)
+
+
+@users_router.post(
+    "",
+    response_model=UserItem,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_module_access("admin-users"))],
+)
+def post_user_direct(
+    payload: CreateUserRequest,
+    current_user: CurrentUserContext = Depends(get_current_user),
+    repo: DataRepository = Depends(get_data_repository),
+) -> UserItem:
+    return _create_user_response(payload, current_user, repo)
 
 
 @router.patch(
@@ -198,7 +251,21 @@ def patch_user(
     current_user: CurrentUserContext = Depends(get_current_user),
     repo: DataRepository = Depends(get_data_repository),
 ) -> UserItem:
-    return UserItem.model_validate(update_user(current_user, user_id, payload, repo))
+    return _update_user_response(user_id, payload, current_user, repo)
+
+
+@users_router.patch(
+    "/{user_id}",
+    response_model=UserItem,
+    dependencies=[Depends(require_module_access("admin-users"))],
+)
+def patch_user_direct(
+    user_id: str,
+    payload: UpdateUserRequest,
+    current_user: CurrentUserContext = Depends(get_current_user),
+    repo: DataRepository = Depends(get_data_repository),
+) -> UserItem:
+    return _update_user_response(user_id, payload, current_user, repo)
 
 
 @router.delete(
@@ -210,5 +277,16 @@ def remove_user(
     user_id: str,
     current_user: CurrentUserContext = Depends(get_current_user),
 ) -> Response:
-    delete_user(current_user, user_id)
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+    return _deactivate_user_response(user_id, current_user)
+
+
+@users_router.delete(
+    "/{user_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_module_access("admin-users"))],
+)
+def remove_user_direct(
+    user_id: str,
+    current_user: CurrentUserContext = Depends(get_current_user),
+) -> Response:
+    return _deactivate_user_response(user_id, current_user)

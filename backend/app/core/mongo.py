@@ -45,6 +45,14 @@ def get_audit_logs_collection() -> Collection:
     return get_database()["audit_logs"]
 
 
+def get_email_outbox_collection() -> Collection:
+    return get_database()["email_outbox"]
+
+
+def get_password_reset_tokens_collection() -> Collection:
+    return get_database()["password_reset_tokens"]
+
+
 def initialize_database() -> None:
     global _initialized
     if _initialized:
@@ -54,6 +62,8 @@ def initialize_database() -> None:
     users = db["users"]
     companies = db["companies"]
     audit_logs = db["audit_logs"]
+    email_outbox = db["email_outbox"]
+    password_reset_tokens = db["password_reset_tokens"]
 
     users.create_index(
         [("username", ASCENDING)],
@@ -80,6 +90,27 @@ def initialize_database() -> None:
     audit_logs.create_index(
         [("created_at", ASCENDING)],
         name="audit_logs_created_at_idx",
+    )
+    email_outbox.create_index(
+        [("recipient", ASCENDING)],
+        name="email_outbox_recipient_idx",
+    )
+    email_outbox.create_index(
+        [("created_at", ASCENDING)],
+        name="email_outbox_created_at_idx",
+    )
+    password_reset_tokens.create_index(
+        [("token_hash", ASCENDING)],
+        unique=True,
+        name="password_reset_token_hash_unique",
+    )
+    password_reset_tokens.create_index(
+        [("user_id", ASCENDING)],
+        name="password_reset_user_id_idx",
+    )
+    password_reset_tokens.create_index(
+        [("expires_at", ASCENDING)],
+        name="password_reset_expires_at_idx",
     )
 
     if users.count_documents({"deleted_at": None}) == 0:
