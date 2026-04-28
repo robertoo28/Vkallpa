@@ -1,7 +1,10 @@
+from datetime import datetime, timedelta, timezone
+
 import mongomock
 import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
+from jose import jwt
 
 from backend.app.auth.dependencies import get_data_repository
 from backend.app.core.mongo import (
@@ -76,10 +79,34 @@ def auth_headers(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
+def build_test_token(
+    user_id: str,
+    tenant_id: str | None,
+    role: str,
+    expires_delta: timedelta,
+    token_type: str = "access",
+) -> str:
+    now = datetime.now(timezone.utc)
+    return jwt.encode(
+        {
+            "sub": user_id,
+            "user_id": user_id,
+            "tenant_id": tenant_id,
+            "role": role,
+            "type": token_type,
+            "iat": int(now.timestamp()),
+            "exp": now + expires_delta,
+        },
+        settings.jwt_secret,
+        algorithm=settings.jwt_algorithm,
+    )
+
+
 def test_bootstrap_admin_can_login_and_fetch_profile(client: TestClient):
     login_payload = login(client, "admin", "admin")
     assert login_payload["user"]["role"] == "vkallpa_admin"
     assert "admin-companies" in login_payload["user"]["module_permissions"]
+    assert login_payload["refresh_token"]
 
     me_response = client.get(
         "/api/v1/auth/me",
@@ -87,6 +114,112 @@ def test_bootstrap_admin_can_login_and_fetch_profile(client: TestClient):
     )
     assert me_response.status_code == 200
     assert me_response.json()["username"] == "admin"
+
+
+def test_login_accepts_email_and_returns_jwt_claims(client: TestClient):
+    admin = login(client, "admin", "admin")
+    admin_headers = auth_headers(admin["access_token"])
+
+    tenant = client.post(
+        "/api/v1/tenants",
+        headers=admin_headers,
+        json={
+            "tenant_id": "jwt-power",
+            "name": "JWT Power",
+            "allowed_building_ids": ["alpha.xlsx"],
+            "admin_username": "jwt-admin@example.com",
+            "admin_full_name": "JWT Admin",
+            "admin_password": "secret1",
+        },
+    )
+    assert tenant.status_code == 201, tenant.text
+
+    response = client.post(
+        "/api/v1/auth/login",
+        json={"email": "jwt-admin@example.com", "password": "secret1"},
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+
+    claims = jwt.decode(
+        payload["access_token"],
+        settings.jwt_secret,
+        algorithms=[settings.jwt_algorithm],
+    )
+    assert claims["type"] == "access"
+    assert claims["user_id"] == payload["user"]["id"]
+    assert claims["tenant_id"] == "jwt-power"
+    assert claims["role"] == "company_admin"
+    assert payload["refresh_token"]
+    assert payload["refresh_expires_in"] > payload["expires_in"]
+
+    refresh = client.post(
+        "/api/v1/auth/refresh",
+        json={"refresh_token": payload["refresh_token"]},
+    )
+    assert refresh.status_code == 200, refresh.text
+    assert refresh.json()["user"]["username"] == "jwt-admin@example.com"
+
+
+def test_login_rejects_incorrect_credentials(client: TestClient):
+    response = client.post(
+        "/api/v1/auth/login",
+        json={"email": "admin", "password": "wrong-password"},
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Invalid credentials"
+
+
+def test_expired_token_is_rejected(client: TestClient):
+    admin = login(client, "admin", "admin")
+    expired_token = build_test_token(
+        user_id=admin["user"]["id"],
+        tenant_id=None,
+        role="vkallpa_admin",
+        expires_delta=timedelta(minutes=-1),
+    )
+
+    response = client.get(
+        "/api/v1/auth/me",
+        headers=auth_headers(expired_token),
+    )
+
+    assert response.status_code == 401
+
+
+def test_token_with_incorrect_tenant_is_rejected(client: TestClient):
+    admin = login(client, "admin", "admin")
+    admin_headers = auth_headers(admin["access_token"])
+
+    tenant = client.post(
+        "/api/v1/tenants",
+        headers=admin_headers,
+        json={
+            "tenant_id": "tenant-token",
+            "name": "Tenant Token",
+            "allowed_building_ids": ["alpha.xlsx"],
+            "admin_username": "tenant-token-admin",
+            "admin_full_name": "Tenant Token Admin",
+            "admin_password": "secret1",
+        },
+    )
+    assert tenant.status_code == 201, tenant.text
+
+    tenant_admin = login(client, "tenant-token-admin", "secret1")
+    wrong_tenant_token = build_test_token(
+        user_id=tenant_admin["user"]["id"],
+        tenant_id="other-tenant",
+        role="company_admin",
+        expires_delta=timedelta(minutes=5),
+    )
+
+    response = client.get(
+        "/api/v1/auth/me",
+        headers=auth_headers(wrong_tenant_token),
+    )
+
+    assert response.status_code == 401
 
 
 def test_create_tenant_generates_initial_admin_and_audit_log(client: TestClient):

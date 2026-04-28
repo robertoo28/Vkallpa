@@ -41,7 +41,7 @@ const ComparaisonPuissance = () => {
     try {
       const res = await apiFetch(`/monitoring/comparaison-puissance?${params.toString()}`)
       setData(res)
-    } catch (err) {
+    } catch {
       setError('Impossible de comparer les jours.')
     }
   }

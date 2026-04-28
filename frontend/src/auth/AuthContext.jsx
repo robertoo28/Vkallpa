@@ -1,15 +1,14 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import {
   AUTH_CHANGED_EVENT,
-  clearStoredToken,
+  clearStoredSession,
   fetchCurrentUser,
   getStoredToken,
   login as loginRequest,
-  setStoredToken,
+  setStoredSession,
 } from '../api/client.js'
-
-const AuthContext = createContext(null)
+import { AuthContext } from './auth-context.js'
 
 export const AuthProvider = ({ children }) => {
   const [token, setToken] = useState(() => getStoredToken())
@@ -61,15 +60,15 @@ export const AuthProvider = ({ children }) => {
     }
   }, [token])
 
-  const login = async (username, password) => {
-    const response = await loginRequest(username, password)
-    setStoredToken(response.access_token)
+  const login = async (email, password) => {
+    const response = await loginRequest(email, password)
+    setStoredSession(response.access_token, response.refresh_token)
     setUser(response.user)
     return response.user
   }
 
   const logout = () => {
-    clearStoredToken()
+    clearStoredSession()
     setUser(null)
   }
 
@@ -92,12 +91,4 @@ export const AuthProvider = ({ children }) => {
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
-}
-
-export const useAuth = () => {
-  const context = useContext(AuthContext)
-  if (!context) {
-    throw new Error('useAuth must be used inside AuthProvider')
-  }
-  return context
 }

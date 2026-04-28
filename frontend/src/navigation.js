@@ -71,6 +71,12 @@ export const MENU = [
 
 export const ROUTE_ITEMS = MENU.flatMap((section) => section.items)
 
+export const ROLE_DEFAULT_PATHS = {
+  vkallpa_admin: '/admin/companies',
+  company_admin: '/admin/users',
+  company_user: '/accueil',
+}
+
 export const BUSINESS_MODULE_OPTIONS = ROUTE_ITEMS.filter(
   (item) => !item.moduleKey.startsWith('admin-'),
 )
@@ -81,6 +87,12 @@ export const hasModuleAccess = (user, moduleKey) => {
   return user.module_permissions.includes(moduleKey)
 }
 
+export const hasRoleAccess = (user, allowedRoles = []) => {
+  if (!user) return false
+  if (!allowedRoles.length) return true
+  return allowedRoles.includes(user.role)
+}
+
 export const getAccessibleMenu = (user) =>
   MENU.map((section) => ({
     ...section,
@@ -88,6 +100,12 @@ export const getAccessibleMenu = (user) =>
   })).filter((section) => section.items.length > 0)
 
 export const getDefaultPath = (user) => {
+  const rolePath = ROLE_DEFAULT_PATHS[user?.role]
+  const roleRoute = ROUTE_ITEMS.find((item) => item.path === rolePath)
+  if (roleRoute && hasModuleAccess(user, roleRoute.moduleKey)) {
+    return rolePath
+  }
+
   const firstRoute = ROUTE_ITEMS.find((item) => hasModuleAccess(user, item.moduleKey))
   return firstRoute?.path || '/login'
 }

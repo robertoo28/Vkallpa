@@ -46,7 +46,7 @@ const Nilm = () => {
         }),
       })
       setData(res)
-    } catch (err) {
+    } catch {
       setError('Impossible de lancer la simulation NILM.')
     }
   }
