@@ -122,4 +122,20 @@ export const login = async (email, password) =>
     skipRefresh: true,
   })
 
+export const requestPasswordReset = async (email) =>
+  apiFetch('/auth/password-reset/request', {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+    skipAuth: true,
+    skipRefresh: true,
+  })
+
+export const confirmPasswordReset = async (token, password) =>
+  apiFetch('/auth/password-reset/confirm', {
+    method: 'POST',
+    body: JSON.stringify({ token, password }),
+    skipAuth: true,
+    skipRefresh: true,
+  })
+
 export const fetchCurrentUser = async () => apiFetch('/auth/me')

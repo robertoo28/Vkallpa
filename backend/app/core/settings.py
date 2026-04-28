@@ -62,6 +62,17 @@ class Settings(BaseSettings):
             "jwt_refresh_expire_minutes",
         ),
     )
+    password_reset_expire_minutes: int = Field(
+        30,
+        validation_alias=AliasChoices(
+            "PASSWORD_RESET_EXPIRE_MINUTES",
+            "password_reset_expire_minutes",
+        ),
+    )
+    frontend_base_url: str = Field(
+        "http://127.0.0.1:5173",
+        validation_alias=AliasChoices("FRONTEND_BASE_URL", "frontend_base_url"),
+    )
     jwt_algorithm: str = "HS256"
     cors_allow_origins: List[str] = ["*"]
 

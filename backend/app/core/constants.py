@@ -10,6 +10,7 @@ USER_STATUS_INACTIVE = "inactive"
 COMPANY_STATUS_ACTIVE = "active"
 COMPANY_STATUS_INACTIVE = "inactive"
 TENANT_SETTINGS_MODULE_KEY = "tenant-settings"
+DEFAULT_TENANT_USER_QUOTA = 25
 
 BUSINESS_MODULES = [
     {"key": "accueil", "label": "Accueil"},

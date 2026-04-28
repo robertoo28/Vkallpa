@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from ..core.constants import (
     ALL_MODULE_KEYS,
     COMPANY_STATUS_VALUES,
+    DEFAULT_TENANT_USER_QUOTA,
     USER_ROLE_VALUES,
     USER_STATUS_VALUES,
 )
@@ -118,6 +119,7 @@ class CompanyRef(BaseModel):
     name: str
     slug: str
     status: str
+    user_quota: int = DEFAULT_TENANT_USER_QUOTA
     allowed_building_ids: list[str] = Field(default_factory=list)
     config: TenantConfigItem = Field(default_factory=TenantConfigItem)
 
@@ -192,6 +194,7 @@ class CreateCompanyRequest(BaseModel):
     name: str
     slug: str | None = None
     status: str = "active"
+    user_quota: int = Field(default=DEFAULT_TENANT_USER_QUOTA, ge=1)
     allowed_building_ids: list[str] = Field(default_factory=list)
     admin_username: str | None = None
     admin_full_name: str | None = None
@@ -210,6 +213,7 @@ class UpdateCompanyRequest(BaseModel):
     name: str | None = None
     slug: str | None = None
     status: str | None = None
+    user_quota: int | None = Field(default=None, ge=1)
     allowed_building_ids: list[str] | None = None
 
     @field_validator("status")
@@ -234,6 +238,8 @@ class UserItem(BaseModel):
     created_by_user_id: str | None = None
     created_at: str | None = None
     updated_at: str | None = None
+    invitation_sent: bool = False
+    temporary_password: str | None = None
 
 
 class UserListResponse(BaseModel):
@@ -243,7 +249,7 @@ class UserListResponse(BaseModel):
 class CreateUserRequest(BaseModel):
     username: str
     full_name: str
-    password: str = Field(min_length=4)
+    password: str | None = Field(default=None, min_length=4)
     role: str
     status: str = "active"
     company_id: str | None = None
@@ -306,3 +312,32 @@ class UpdateUserRequest(BaseModel):
         if invalid:
             raise ValueError("Invalid module permissions")
         return value
+
+
+class PasswordResetRequest(BaseModel):
+    email: str
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Email is required")
+        return value
+
+
+class PasswordResetConfirmRequest(BaseModel):
+    token: str
+    password: str = Field(min_length=4)
+
+    @field_validator("token")
+    @classmethod
+    def validate_token(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Token is required")
+        return value
+
+
+class MessageResponse(BaseModel):
+    message: str

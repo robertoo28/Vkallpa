@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 
 from .admin.routes import router as admin_router
 from .admin.routes import tenants_router
+from .admin.routes import users_router
 from .auth.dependencies import get_current_user
 from .auth.routes import router as auth_router
 from .core.mongo import close_database, initialize_database
@@ -95,6 +96,7 @@ protected_router.include_router(traitement_router, tags=["traitement"])
 protected_router.include_router(ia_router, tags=["ia"])
 protected_router.include_router(admin_router)
 protected_router.include_router(tenants_router)
+protected_router.include_router(users_router)
 protected_router.include_router(placeholders_router, tags=["placeholders"])
 
 app.include_router(public_router)

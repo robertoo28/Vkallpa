@@ -2,8 +2,22 @@ from fastapi import APIRouter, Depends
 
 from ..core.security import create_token_pair
 from .dependencies import get_current_user, get_current_user_from_refresh_token
-from .schemas import CurrentUserProfile, LoginRequest, LoginResponse, RefreshRequest
-from .service import CurrentUserContext, authenticate_user, build_current_user_profile
+from .schemas import (
+    CurrentUserProfile,
+    LoginRequest,
+    LoginResponse,
+    MessageResponse,
+    PasswordResetConfirmRequest,
+    PasswordResetRequest,
+    RefreshRequest,
+)
+from .service import (
+    CurrentUserContext,
+    authenticate_user,
+    build_current_user_profile,
+    confirm_password_reset,
+    request_password_reset,
+)
 
 
 router = APIRouter()
@@ -36,6 +50,22 @@ def login(payload: LoginRequest) -> LoginResponse:
 def refresh(payload: RefreshRequest) -> LoginResponse:
     current_user = get_current_user_from_refresh_token(payload.refresh_token)
     return _build_login_response(current_user)
+
+
+@router.post("/password-reset/request", response_model=MessageResponse)
+def request_reset(payload: PasswordResetRequest) -> MessageResponse:
+    """Queue a one-use password reset token for the requested email."""
+    request_password_reset(payload.email)
+    return MessageResponse(
+        message="If the account exists, password reset instructions were sent."
+    )
+
+
+@router.post("/password-reset/confirm", response_model=MessageResponse)
+def confirm_reset(payload: PasswordResetConfirmRequest) -> MessageResponse:
+    """Confirm a password reset token and save the new password."""
+    confirm_password_reset(payload.token, payload.password)
+    return MessageResponse(message="Password updated successfully.")
 
 
 @router.get("/me", response_model=CurrentUserProfile)

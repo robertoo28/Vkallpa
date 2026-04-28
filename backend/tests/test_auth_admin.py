@@ -9,6 +9,7 @@ from jose import jwt
 from backend.app.auth.dependencies import get_data_repository
 from backend.app.core.mongo import (
     get_audit_logs_collection,
+    get_email_outbox_collection,
     reset_database_state,
     set_test_database,
 )
@@ -511,6 +512,68 @@ def test_vkallpa_admin_and_company_admin_manage_users_by_scope(client: TestClien
     assert forbidden.status_code == 403
 
 
+def test_create_user_respects_quota_and_queues_invitation(client: TestClient):
+    admin = login(client, "admin", "admin")
+    admin_headers = auth_headers(admin["access_token"])
+
+    company = client.post(
+        "/api/v1/tenants",
+        headers=admin_headers,
+        json={
+            "tenant_id": "quota-tenant",
+            "name": "Quota Tenant",
+            "user_quota": 2,
+            "allowed_building_ids": ["alpha.xlsx"],
+            "admin_username": "quota-admin@example.com",
+            "admin_full_name": "Quota Admin",
+            "admin_password": "secret1",
+        },
+    )
+    assert company.status_code == 201, company.text
+
+    company_admin = login(client, "quota-admin@example.com", "secret1")
+    company_admin_headers = auth_headers(company_admin["access_token"])
+
+    user_response = client.post(
+        "/api/v1/users",
+        headers=company_admin_headers,
+        json={
+            "username": "quota-user@example.com",
+            "full_name": "Quota User",
+            "role": "company_user",
+            "module_permissions": ["accueil"],
+            "allowed_building_ids": ["alpha.xlsx"],
+        },
+    )
+    assert user_response.status_code == 201, user_response.text
+    payload = user_response.json()
+    assert payload["invitation_sent"] is True
+    assert payload["temporary_password"]
+
+    invitation = get_email_outbox_collection().find_one(
+        {
+            "recipient": "quota-user@example.com",
+            "metadata.type": "user_invitation",
+        }
+    )
+    assert invitation is not None
+    assert invitation["metadata"]["temporary_password"] == payload["temporary_password"]
+
+    over_quota = client.post(
+        "/api/v1/users",
+        headers=company_admin_headers,
+        json={
+            "username": "quota-user-2@example.com",
+            "full_name": "Quota User 2",
+            "role": "company_user",
+            "module_permissions": ["accueil"],
+            "allowed_building_ids": ["alpha.xlsx"],
+        },
+    )
+    assert over_quota.status_code == 409
+    assert over_quota.json()["detail"] == "User quota exceeded"
+
+
 def test_company_user_is_limited_to_allowed_buildings(client: TestClient):
     admin = login(client, "admin", "admin")
     admin_headers = auth_headers(admin["access_token"])
@@ -593,10 +656,72 @@ def test_deleted_user_token_becomes_invalid(client: TestClient):
     user_headers = auth_headers(user_login["access_token"])
 
     delete_response = client.delete(
-        f"/api/v1/admin/users/{user_id}",
+        f"/api/v1/users/{user_id}",
         headers=admin_headers,
     )
     assert delete_response.status_code == 204
 
+    users = client.get("/api/v1/users", headers=admin_headers)
+    assert users.status_code == 200
+    inactive_user = next(
+        item for item in users.json()["items"] if item["id"] == user_id
+    )
+    assert inactive_user["status"] == "inactive"
+
     me_response = client.get("/api/v1/auth/me", headers=user_headers)
     assert me_response.status_code == 401
+
+
+def test_password_reset_flow_uses_one_time_token(client: TestClient):
+    admin = login(client, "admin", "admin")
+    admin_headers = auth_headers(admin["access_token"])
+
+    tenant = client.post(
+        "/api/v1/tenants",
+        headers=admin_headers,
+        json={
+            "tenant_id": "reset-tenant",
+            "name": "Reset Tenant",
+            "allowed_building_ids": ["alpha.xlsx"],
+            "admin_username": "reset-admin@example.com",
+            "admin_full_name": "Reset Admin",
+            "admin_password": "secret1",
+        },
+    )
+    assert tenant.status_code == 201, tenant.text
+
+    request = client.post(
+        "/api/v1/auth/password-reset/request",
+        json={"email": "reset-admin@example.com"},
+    )
+    assert request.status_code == 200, request.text
+
+    reset_email = get_email_outbox_collection().find_one(
+        {
+            "recipient": "reset-admin@example.com",
+            "metadata.type": "password_reset",
+        }
+    )
+    assert reset_email is not None
+    reset_token = reset_email["metadata"]["token"]
+
+    confirm = client.post(
+        "/api/v1/auth/password-reset/confirm",
+        json={"token": reset_token, "password": "new-secret"},
+    )
+    assert confirm.status_code == 200, confirm.text
+
+    old_login = client.post(
+        "/api/v1/auth/login",
+        json={"email": "reset-admin@example.com", "password": "secret1"},
+    )
+    assert old_login.status_code == 401
+
+    new_login = login(client, "reset-admin@example.com", "new-secret")
+    assert new_login["user"]["username"] == "reset-admin@example.com"
+
+    reused = client.post(
+        "/api/v1/auth/password-reset/confirm",
+        json={"token": reset_token, "password": "another-secret"},
+    )
+    assert reused.status_code == 400

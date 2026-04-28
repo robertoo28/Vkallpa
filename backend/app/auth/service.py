@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+import hashlib
 import re
 from secrets import token_urlsafe
 from typing import Any
@@ -17,20 +18,24 @@ from ..core.constants import (
     COMPANY_ADMIN_MODULE_KEYS,
     COMPANY_STATUS_ACTIVE,
     COMPANY_STATUS_INACTIVE,
+    DEFAULT_TENANT_USER_QUOTA,
     DEFAULT_COMPANY_USER_MODULE_KEYS,
     ROLE_COMPANY_ADMIN,
-    ROLE_COMPANY_USER,
     ROLE_VKALLPA_ADMIN,
     USER_STATUS_ACTIVE,
+    USER_STATUS_INACTIVE,
     VKALLPA_ADMIN_MODULE_KEYS,
 )
 from ..core.mongo import (
     get_audit_logs_collection,
     get_companies_collection,
+    get_email_outbox_collection,
+    get_password_reset_tokens_collection,
     get_users_collection,
     serialize_mongo_id,
 )
 from ..core.security import hash_password, verify_password
+from ..core.settings import settings
 from ..services.data_repository import AzureDataError, DataRepository
 
 TenantConfig = dict[str, dict[str, Any]]
@@ -72,6 +77,30 @@ def _serialize_datetime(value: datetime | None) -> str | None:
     if value is None:
         return None
     return value.isoformat()
+
+
+def _as_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value
+
+
+def _hash_token(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _get_user_quota(company_doc: dict | None) -> int:
+    if company_doc is None:
+        return DEFAULT_TENANT_USER_QUOTA
+    raw_quota = company_doc.get("user_quota", DEFAULT_TENANT_USER_QUOTA)
+    if not isinstance(raw_quota, int) or raw_quota < 1:
+        return DEFAULT_TENANT_USER_QUOTA
+    return raw_quota
+
+
+def _build_password_reset_url(token: str) -> str:
+    base_url = settings.frontend_base_url.rstrip("/")
+    return f"{base_url}/login?reset_token={token}"
 
 
 def _normalize_slug(value: str) -> str:
@@ -137,8 +166,7 @@ DEFAULT_TENANT_CONFIG: TenantConfig = {
 
 def _serialize_tenant_config(raw_config: dict[str, Any] | None) -> TenantConfig:
     config = {
-        category: dict(defaults)
-        for category, defaults in DEFAULT_TENANT_CONFIG.items()
+        category: dict(defaults) for category, defaults in DEFAULT_TENANT_CONFIG.items()
     }
     if not raw_config:
         return config
@@ -156,9 +184,7 @@ def _resolve_company(company_id: str | None):
     if not company_id:
         return None
     companies = get_companies_collection()
-    company = companies.find_one(
-        {"_id": _parse_object_id(company_id, "company_id")}
-    )
+    company = companies.find_one({"_id": _parse_object_id(company_id, "company_id")})
     if not company:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -343,6 +369,7 @@ def build_current_user_profile(context: CurrentUserContext) -> dict:
             "name": context.company_name or "",
             "slug": context.company_slug or "",
             "status": context.company_status or COMPANY_STATUS_INACTIVE,
+            "user_quota": DEFAULT_TENANT_USER_QUOTA,
             "allowed_building_ids": context.company_allowed_building_ids,
             "config": _serialize_tenant_config(context.company_config),
         }
@@ -374,6 +401,7 @@ def _serialize_company(
         "name": company_doc["name"],
         "slug": company_doc["slug"],
         "status": company_doc["status"],
+        "user_quota": _get_user_quota(company_doc),
         "allowed_building_ids": _dedupe_preserve_order(
             company_doc.get("allowed_building_ids", [])
         ),
@@ -386,7 +414,12 @@ def _serialize_company(
     }
 
 
-def _serialize_user(user_doc: dict, company_doc: dict | None) -> dict:
+def _serialize_user(
+    user_doc: dict,
+    company_doc: dict | None,
+    temporary_password: str | None = None,
+    invitation_sent: bool | None = None,
+) -> dict:
     context = _build_current_user_context(user_doc, company_doc)
     company_payload = None
     if company_doc:
@@ -396,6 +429,7 @@ def _serialize_user(user_doc: dict, company_doc: dict | None) -> dict:
             "name": company_doc["name"],
             "slug": company_doc["slug"],
             "status": company_doc["status"],
+            "user_quota": _get_user_quota(company_doc),
             "allowed_building_ids": _dedupe_preserve_order(
                 company_doc.get("allowed_building_ids", [])
             ),
@@ -419,6 +453,12 @@ def _serialize_user(user_doc: dict, company_doc: dict | None) -> dict:
         "created_by_user_id": context.created_by_user_id,
         "created_at": _serialize_datetime(user_doc.get("created_at")),
         "updated_at": _serialize_datetime(user_doc.get("updated_at")),
+        "invitation_sent": (
+            bool(user_doc.get("invitation_sent"))
+            if invitation_sent is None
+            else invitation_sent
+        ),
+        "temporary_password": temporary_password,
     }
 
 
@@ -514,17 +554,13 @@ def _resolve_user_buildings(
 
     company_allowed = _validate_buildings_exist(
         repo,
-        _dedupe_preserve_order(
-            (company_doc or {}).get("allowed_building_ids", [])
-        ),
+        _dedupe_preserve_order((company_doc or {}).get("allowed_building_ids", [])),
     )
     if role == ROLE_COMPANY_ADMIN:
         return company_allowed
 
     requested = (
-        requested_buildings
-        if requested_buildings is not None
-        else company_allowed
+        requested_buildings if requested_buildings is not None else company_allowed
     )
     requested = _validate_buildings_exist(repo, requested)
     company_allowed_set = set(company_allowed)
@@ -535,6 +571,28 @@ def _resolve_user_buildings(
             detail="User buildings must be a subset of company buildings",
         )
     return requested
+
+
+def _assert_user_quota_available(company_doc: dict | None) -> None:
+    if company_doc is None:
+        return
+
+    users = get_users_collection()
+    current_users = users.count_documents(
+        {"company_id": company_doc["_id"], "deleted_at": None}
+    )
+    if current_users >= _get_user_quota(company_doc):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="User quota exceeded",
+        )
+
+
+def _resolve_new_user_password(password: str | None) -> tuple[str, str | None]:
+    if password:
+        return password, None
+    temporary_password = token_urlsafe(12)
+    return temporary_password, temporary_password
 
 
 def _record_audit_log(
@@ -554,6 +612,78 @@ def _record_audit_log(
             "details": details,
             "created_at": _utcnow(),
         }
+    )
+
+
+def _record_system_audit_log(
+    tenant_id: str,
+    action: str,
+    target_id: str,
+    details: dict,
+) -> None:
+    audit_logs = get_audit_logs_collection()
+    audit_logs.insert_one(
+        {
+            "tenant_id": tenant_id,
+            "action": action,
+            "target_id": target_id,
+            "actor_user_id": None,
+            "details": details,
+            "created_at": _utcnow(),
+        }
+    )
+
+
+def _queue_email(
+    recipient: str,
+    subject: str,
+    body: str,
+    metadata: dict[str, Any],
+) -> None:
+    email_outbox = get_email_outbox_collection()
+    email_outbox.insert_one(
+        {
+            "recipient": recipient,
+            "subject": subject,
+            "body": body,
+            "metadata": metadata,
+            "status": "queued",
+            "created_at": _utcnow(),
+        }
+    )
+
+
+def _queue_user_invitation(
+    actor: CurrentUserContext,
+    user_doc: dict,
+    company_doc: dict | None,
+    temporary_password: str | None,
+) -> None:
+    tenant_id = (company_doc or {}).get("tenant_id") or "vkallpa"
+    username = user_doc["username"]
+    body = (
+        f"Hola {user_doc['full_name']}, tu cuenta de V-Kallpa esta lista para ingresar."
+    )
+    if temporary_password:
+        body = f"{body} Clave temporal: {temporary_password}"
+
+    _queue_email(
+        username,
+        "Invitacion a V-Kallpa",
+        body,
+        {
+            "type": "user_invitation",
+            "user_id": serialize_mongo_id(user_doc["_id"]),
+            "tenant_id": tenant_id,
+            "temporary_password": temporary_password,
+        },
+    )
+    _record_audit_log(
+        actor,
+        tenant_id,
+        "user.invitation_sent",
+        serialize_mongo_id(user_doc["_id"]) or "",
+        {"username": username},
     )
 
 
@@ -642,6 +772,7 @@ def _build_update_changes(company: dict, update_fields: dict) -> dict:
         "name",
         "slug",
         "status",
+        "user_quota",
         "allowed_building_ids",
     }
     changes = {}
@@ -677,9 +808,7 @@ def _build_config_changes(
 def _build_config_update(payload: Any) -> dict[str, dict[str, Any]]:
     update_fields = payload.model_dump(exclude_unset=True, exclude_none=True)
     update_fields = {
-        category: values
-        for category, values in update_fields.items()
-        if values
+        category: values for category, values in update_fields.items() if values
     }
     if not update_fields:
         raise HTTPException(
@@ -749,6 +878,7 @@ def create_company(actor: CurrentUserContext, payload, repo: DataRepository) -> 
         "name": name,
         "slug": slug,
         "status": payload.status,
+        "user_quota": payload.user_quota,
         "allowed_building_ids": _validate_buildings_exist(
             repo,
             payload.allowed_building_ids,
@@ -821,6 +951,16 @@ def update_company(
         update_fields["slug"] = slug
     if payload.status is not None:
         update_fields["status"] = payload.status
+    if payload.user_quota is not None:
+        current_users = users.count_documents(
+            {"company_id": company["_id"], "deleted_at": None}
+        )
+        if payload.user_quota < current_users:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="User quota cannot be lower than current user count",
+            )
+        update_fields["user_quota"] = payload.user_quota
     if payload.allowed_building_ids is not None:
         allowed_building_ids = _validate_buildings_exist(
             repo,
@@ -916,14 +1056,12 @@ def list_users(actor: CurrentUserContext) -> list[dict]:
     users = get_users_collection()
     companies = get_companies_collection()
 
-    query = {"deleted_at": None}
+    query: dict[str, Any] = {"deleted_at": None}
     if actor.role == ROLE_COMPANY_ADMIN:
         query["company_id"] = _parse_object_id(actor.company_id or "", "company_id")
 
     user_docs = list(users.find(query).sort("created_at", -1))
-    company_ids = [
-        doc.get("company_id") for doc in user_docs if doc.get("company_id")
-    ]
+    company_ids = [doc.get("company_id") for doc in user_docs if doc.get("company_id")]
     company_map = {
         company["_id"]: company
         for company in companies.find({"_id": {"$in": company_ids}})
@@ -946,13 +1084,15 @@ def create_user(actor: CurrentUserContext, payload, repo: DataRepository) -> dic
 
     company_doc = _resolve_company_scope(actor, payload.role, payload.company_id)
     role = payload.role
+    _assert_user_quota_available(company_doc)
+    password, temporary_password = _resolve_new_user_password(payload.password)
     users = get_users_collection()
     now = _utcnow()
 
     doc = {
         "username": payload.username.strip(),
         "full_name": payload.full_name.strip(),
-        "password_hash": hash_password(payload.password),
+        "password_hash": hash_password(password),
         "role": role,
         "status": payload.status,
         "company_id": company_doc["_id"] if company_doc else None,
@@ -970,6 +1110,7 @@ def create_user(actor: CurrentUserContext, payload, repo: DataRepository) -> dic
         "created_at": now,
         "updated_at": now,
         "deleted_at": None,
+        "invitation_sent": False,
     }
     try:
         result = users.insert_one(doc)
@@ -980,7 +1121,25 @@ def create_user(actor: CurrentUserContext, payload, repo: DataRepository) -> dic
         ) from exc
 
     created = users.find_one({"_id": result.inserted_id}) or doc
-    return _serialize_user(created, company_doc)
+    _queue_user_invitation(actor, created, company_doc, temporary_password)
+    users.update_one(
+        {"_id": result.inserted_id},
+        {"$set": {"invitation_sent": True, "updated_at": _utcnow()}},
+    )
+    created["invitation_sent"] = True
+    _record_audit_log(
+        actor,
+        (company_doc or {}).get("tenant_id") or "vkallpa",
+        "user.created",
+        serialize_mongo_id(created["_id"]) or "",
+        {"username": created["username"], "role": created["role"]},
+    )
+    return _serialize_user(
+        created,
+        company_doc,
+        temporary_password=temporary_password,
+        invitation_sent=True,
+    )
 
 
 def update_user(
@@ -995,6 +1154,11 @@ def update_user(
     users = get_users_collection()
     target = _get_user_or_404(user_id)
     target_company = _resolve_company(serialize_mongo_id(target.get("company_id")))
+    if actor.user_id == user_id and payload.status == USER_STATUS_INACTIVE:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot deactivate current user",
+        )
 
     if actor.role == ROLE_COMPANY_ADMIN:
         if serialize_mongo_id(target.get("company_id")) != actor.company_id:
@@ -1066,10 +1230,19 @@ def update_user(
         ) from exc
 
     updated = users.find_one({"_id": target["_id"]}) or target
+    tenant_id = (company_doc or target_company or {}).get("tenant_id") or "vkallpa"
+    _record_audit_log(
+        actor,
+        tenant_id,
+        "user.updated",
+        serialize_mongo_id(target["_id"]) or "",
+        {"username": updated["username"], "status": updated["status"]},
+    )
     return _serialize_user(updated, company_doc)
 
 
 def delete_user(actor: CurrentUserContext, user_id: str) -> None:
+    """Deactivate a user so existing access and refresh tokens stop working."""
     if not actor.can_manage_users:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
     if actor.user_id == user_id:
@@ -1080,6 +1253,7 @@ def delete_user(actor: CurrentUserContext, user_id: str) -> None:
 
     users = get_users_collection()
     target = _get_user_or_404(user_id)
+    target_company = _resolve_company(serialize_mongo_id(target.get("company_id")))
     if actor.role == ROLE_COMPANY_ADMIN:
         if serialize_mongo_id(target.get("company_id")) != actor.company_id:
             raise HTTPException(
@@ -1096,9 +1270,121 @@ def delete_user(actor: CurrentUserContext, user_id: str) -> None:
         {"_id": target["_id"]},
         {
             "$set": {
-                "status": "inactive",
-                "deleted_at": _utcnow(),
+                "status": USER_STATUS_INACTIVE,
                 "updated_at": _utcnow(),
             }
         },
+    )
+    tenant_id = (target_company or {}).get("tenant_id") or "vkallpa"
+    _record_audit_log(
+        actor,
+        tenant_id,
+        "user.deactivated",
+        serialize_mongo_id(target["_id"]) or "",
+        {"username": target["username"]},
+    )
+
+
+def request_password_reset(email: str) -> None:
+    """Queue a password reset email without revealing whether the account exists."""
+    users = get_users_collection()
+    user_doc = users.find_one({"username": email.strip(), "deleted_at": None})
+    if not user_doc:
+        return
+
+    company_doc = None
+    if user_doc.get("company_id"):
+        company_doc = _resolve_company(serialize_mongo_id(user_doc.get("company_id")))
+    if user_doc.get("status") != USER_STATUS_ACTIVE:
+        return
+    if user_doc["role"] != ROLE_VKALLPA_ADMIN and not _company_is_active(company_doc):
+        return
+
+    now = _utcnow()
+    raw_token = token_urlsafe(32)
+    reset_url = _build_password_reset_url(raw_token)
+    tokens = get_password_reset_tokens_collection()
+    tokens.update_many(
+        {"user_id": user_doc["_id"], "used_at": None},
+        {"$set": {"used_at": now, "updated_at": now}},
+    )
+    tokens.insert_one(
+        {
+            "user_id": user_doc["_id"],
+            "token_hash": _hash_token(raw_token),
+            "expires_at": now
+            + timedelta(minutes=settings.password_reset_expire_minutes),
+            "used_at": None,
+            "created_at": now,
+            "updated_at": now,
+        }
+    )
+
+    tenant_id = (company_doc or {}).get("tenant_id") or "vkallpa"
+    _queue_email(
+        user_doc["username"],
+        "Recuperacion de contrasena V-Kallpa",
+        (f"Usa este enlace para restablecer tu contrasena: {reset_url}"),
+        {
+            "type": "password_reset",
+            "token": raw_token,
+            "reset_url": reset_url,
+            "tenant_id": tenant_id,
+            "user_id": serialize_mongo_id(user_doc["_id"]),
+        },
+    )
+    _record_system_audit_log(
+        tenant_id,
+        "user.password_reset_requested",
+        serialize_mongo_id(user_doc["_id"]) or "",
+        {"username": user_doc["username"]},
+    )
+
+
+def confirm_password_reset(token: str, password: str) -> None:
+    """Reset the password when a valid one-use token is presented."""
+    tokens = get_password_reset_tokens_collection()
+    token_doc = tokens.find_one({"token_hash": _hash_token(token), "used_at": None})
+    now = _utcnow()
+    expires_at = token_doc.get("expires_at") if token_doc else None
+    if (
+        not token_doc
+        or not isinstance(expires_at, datetime)
+        or _as_utc(expires_at) < now
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired token",
+        )
+
+    users = get_users_collection()
+    user_doc = users.find_one({"_id": token_doc["user_id"], "deleted_at": None})
+    if not user_doc or user_doc.get("status") != USER_STATUS_ACTIVE:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired token",
+        )
+
+    company_doc = None
+    if user_doc.get("company_id"):
+        company_doc = _resolve_company(serialize_mongo_id(user_doc.get("company_id")))
+    if user_doc["role"] != ROLE_VKALLPA_ADMIN and not _company_is_active(company_doc):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired token",
+        )
+
+    users.update_one(
+        {"_id": user_doc["_id"]},
+        {"$set": {"password_hash": hash_password(password), "updated_at": now}},
+    )
+    tokens.update_many(
+        {"user_id": user_doc["_id"], "used_at": None},
+        {"$set": {"used_at": now, "updated_at": now}},
+    )
+    _record_system_audit_log(
+        (company_doc or {}).get("tenant_id") or "vkallpa",
+        "user.password_reset_completed",
+        serialize_mongo_id(user_doc["_id"]) or "",
+        {"username": user_doc["username"]},
     )
