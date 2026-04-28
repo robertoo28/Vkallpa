@@ -9,6 +9,7 @@ USER_STATUS_INACTIVE = "inactive"
 
 COMPANY_STATUS_ACTIVE = "active"
 COMPANY_STATUS_INACTIVE = "inactive"
+DATA_SOURCES_MODULE_KEY = "data-sources"
 TENANT_SETTINGS_MODULE_KEY = "tenant-settings"
 DEFAULT_TENANT_USER_QUOTA = 25
 
@@ -33,6 +34,7 @@ BUSINESS_MODULES = [
 ADMIN_MODULES = [
     {"key": "admin-users", "label": "Utilisateurs"},
     {"key": "admin-companies", "label": "Entreprises"},
+    {"key": DATA_SOURCES_MODULE_KEY, "label": "Fuentes de datos"},
     {"key": TENANT_SETTINGS_MODULE_KEY, "label": "Configuration tenant"},
 ]
 
@@ -43,7 +45,8 @@ ALL_MODULE_KEYS = {item["key"] for item in ALL_MODULES}
 
 VKALLPA_ADMIN_MODULE_KEYS = sorted(ALL_MODULE_KEYS)
 COMPANY_ADMIN_MODULE_KEYS = sorted(
-    BUSINESS_MODULE_KEYS | {"admin-users", TENANT_SETTINGS_MODULE_KEY}
+    BUSINESS_MODULE_KEYS
+    | {"admin-users", DATA_SOURCES_MODULE_KEY, TENANT_SETTINGS_MODULE_KEY}
 )
 DEFAULT_COMPANY_USER_MODULE_KEYS = ["accueil", "monitoring"]
 

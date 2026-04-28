@@ -13,6 +13,7 @@ from .auth.dependencies import get_current_user
 from .auth.routes import router as auth_router
 from .core.mongo import close_database, initialize_database
 from .core.settings import settings
+from .data_sources.routes import router as data_sources_router
 from .routers.accueil import router as accueil_router
 from .routers.buildings import router as buildings_router
 from .routers.dashboard_multi import router as dashboard_multi_router
@@ -97,6 +98,7 @@ protected_router.include_router(ia_router, tags=["ia"])
 protected_router.include_router(admin_router)
 protected_router.include_router(tenants_router)
 protected_router.include_router(users_router)
+protected_router.include_router(data_sources_router)
 protected_router.include_router(placeholders_router, tags=["placeholders"])
 
 app.include_router(public_router)

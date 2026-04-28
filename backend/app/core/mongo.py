@@ -53,6 +53,11 @@ def get_password_reset_tokens_collection() -> Collection:
     return get_database()["password_reset_tokens"]
 
 
+def get_data_sources_collection() -> Collection:
+    """Return the tenant data source configuration collection."""
+    return get_database()["data_sources"]
+
+
 def initialize_database() -> None:
     global _initialized
     if _initialized:
@@ -64,6 +69,7 @@ def initialize_database() -> None:
     audit_logs = db["audit_logs"]
     email_outbox = db["email_outbox"]
     password_reset_tokens = db["password_reset_tokens"]
+    data_sources = db["data_sources"]
 
     users.create_index(
         [("username", ASCENDING)],
@@ -111,6 +117,11 @@ def initialize_database() -> None:
     password_reset_tokens.create_index(
         [("expires_at", ASCENDING)],
         name="password_reset_expires_at_idx",
+    )
+    data_sources.create_index(
+        [("tenant_id", ASCENDING)],
+        unique=True,
+        name="data_sources_tenant_id_unique",
     )
 
     if users.count_documents({"deleted_at": None}) == 0:

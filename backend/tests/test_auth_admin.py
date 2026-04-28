@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+import io
 
 import mongomock
 import pandas as pd
@@ -20,23 +21,39 @@ from backend.app.main import app
 class FakeRepo:
     def __init__(self) -> None:
         self._buildings = ["alpha.xlsx", "beta.xlsx", "gamma.xlsx"]
+        self._blobs = [*self._buildings, "meter-data.csv", "notes.txt"]
         self._df = pd.DataFrame(
             {
                 "Date": pd.date_range("2024-01-01", periods=48, freq="h"),
                 "Energie_periode_kWh": [1.0] * 48,
                 "Puissance_moyenne_kW": [2.0] * 48,
+                "Batiment": ["alpha"] * 48,
             }
         )
 
-    def list_blobs(self):
-        return self._buildings
+    def list_blobs(self) -> list[str]:
+        return self._blobs
 
-    def get_date_range(self, blob_name: str):
+    def download_blob_bytes(self, blob_name: str) -> bytes:
+        if blob_name == "meter-data.csv":
+            return self._df.to_csv(index=False).encode("utf-8")
+        if blob_name in self._buildings:
+            buffer = io.BytesIO()
+            with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+                self._df.to_excel(
+                    writer,
+                    index=False,
+                    sheet_name="Donnees_Detaillees",
+                )
+            return buffer.getvalue()
+        raise RuntimeError("Missing blob")
+
+    def get_date_range(self, blob_name: str) -> tuple[str, str]:
         if blob_name not in self._buildings:
             raise RuntimeError("Missing blob")
         return ("2024-01-01", "2024-01-02")
 
-    def load_excel(self, blob_name: str, sheet_name: str):
+    def load_excel(self, blob_name: str, sheet_name: str) -> pd.DataFrame:
         if blob_name not in self._buildings:
             raise RuntimeError("Missing blob")
         return self._df.copy()
@@ -438,6 +455,189 @@ def test_company_admin_updates_only_own_tenant_config(client: TestClient):
         json={"alerts": {"enabled": False}},
     )
     assert forbidden.status_code == 403
+
+
+def build_data_source_payload(
+    tenant_id: str | None,
+    container_name: str = "energy-data",
+) -> dict:
+    return {
+        "tenant_id": tenant_id,
+        "source_type": "azure_blob",
+        "name": "Azure Blob Storage",
+        "container_name": container_name,
+        "blob_prefix": "",
+        "default_sheet_name": "Donnees_Detaillees",
+        "field_mapping": {
+            "timestamp": "Date",
+            "energy_kwh": "Energie_periode_kWh",
+            "power_kw": "Puissance_moyenne_kW",
+            "site": "Batiment",
+        },
+    }
+
+
+def test_data_source_config_is_associated_with_tenant(
+    client: TestClient,
+) -> None:
+    admin = login(client, "admin", "admin")
+    admin_headers = auth_headers(admin["access_token"])
+
+    tenant = client.post(
+        "/api/v1/tenants",
+        headers=admin_headers,
+        json={
+            "tenant_id": "source-tenant",
+            "name": "Source Tenant",
+            "allowed_building_ids": ["alpha.xlsx"],
+            "admin_username": "source-admin@example.com",
+            "admin_full_name": "Source Admin",
+            "admin_password": "secret1",
+        },
+    )
+    assert tenant.status_code == 201, tenant.text
+
+    response = client.put(
+        "/api/v1/data-sources",
+        headers=admin_headers,
+        json=build_data_source_payload("source-tenant"),
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["tenant_id"] == "source-tenant"
+    assert payload["container_name"] == "energy-data"
+    assert payload["field_mapping"]["timestamp"] == "Date"
+
+    fetched = client.get(
+        "/api/v1/data-sources?tenant_id=source-tenant",
+        headers=admin_headers,
+    )
+    assert fetched.status_code == 200, fetched.text
+    assert fetched.json()["id"] == payload["id"]
+
+
+def test_company_admin_manages_only_own_data_source(client: TestClient) -> None:
+    admin = login(client, "admin", "admin")
+    admin_headers = auth_headers(admin["access_token"])
+
+    own_tenant = client.post(
+        "/api/v1/tenants",
+        headers=admin_headers,
+        json={
+            "tenant_id": "own-source",
+            "name": "Own Source",
+            "allowed_building_ids": ["alpha.xlsx"],
+            "admin_username": "own-source-admin@example.com",
+            "admin_full_name": "Own Source Admin",
+            "admin_password": "secret1",
+        },
+    )
+    assert own_tenant.status_code == 201, own_tenant.text
+
+    other_tenant = client.post(
+        "/api/v1/tenants",
+        headers=admin_headers,
+        json={
+            "tenant_id": "other-source",
+            "name": "Other Source",
+            "allowed_building_ids": ["beta.xlsx"],
+            "admin_username": "other-source-admin@example.com",
+            "admin_full_name": "Other Source Admin",
+            "admin_password": "secret2",
+        },
+    )
+    assert other_tenant.status_code == 201, other_tenant.text
+
+    company_admin = login(client, "own-source-admin@example.com", "secret1")
+    company_admin_headers = auth_headers(company_admin["access_token"])
+
+    own_update = client.put(
+        "/api/v1/data-sources",
+        headers=company_admin_headers,
+        json=build_data_source_payload("own-source"),
+    )
+    assert own_update.status_code == 200, own_update.text
+    assert own_update.json()["tenant_id"] == "own-source"
+
+    forbidden = client.get(
+        "/api/v1/data-sources?tenant_id=other-source",
+        headers=company_admin_headers,
+    )
+    assert forbidden.status_code == 403
+
+
+def test_data_source_files_and_preview_validation(client: TestClient) -> None:
+    admin = login(client, "admin", "admin")
+    admin_headers = auth_headers(admin["access_token"])
+
+    tenant = client.post(
+        "/api/v1/tenants",
+        headers=admin_headers,
+        json={
+            "tenant_id": "preview-source",
+            "name": "Preview Source",
+            "allowed_building_ids": ["alpha.xlsx"],
+            "admin_username": "preview-source-admin@example.com",
+            "admin_full_name": "Preview Source Admin",
+            "admin_password": "secret1",
+        },
+    )
+    assert tenant.status_code == 201, tenant.text
+
+    saved = client.put(
+        "/api/v1/data-sources",
+        headers=admin_headers,
+        json=build_data_source_payload("preview-source"),
+    )
+    assert saved.status_code == 200, saved.text
+
+    files = client.get(
+        "/api/v1/data-sources/files?tenant_id=preview-source",
+        headers=admin_headers,
+    )
+    assert files.status_code == 200, files.text
+    assert {item["name"] for item in files.json()["items"]} == {
+        "alpha.xlsx",
+        "beta.xlsx",
+        "gamma.xlsx",
+        "meter-data.csv",
+    }
+
+    valid_preview = client.post(
+        "/api/v1/data-sources/preview",
+        headers=admin_headers,
+        json={
+            "tenant_id": "preview-source",
+            "blob_name": "meter-data.csv",
+        },
+    )
+    assert valid_preview.status_code == 200, valid_preview.text
+    assert valid_preview.json()["is_valid"] is True
+    assert valid_preview.json()["rows"][0]["Batiment"] == "alpha"
+
+    invalid_preview = client.post(
+        "/api/v1/data-sources/preview",
+        headers=admin_headers,
+        json={
+            "tenant_id": "preview-source",
+            "blob_name": "meter-data.csv",
+            "field_mapping": {
+                "timestamp": "Date",
+                "energy_kwh": "Missing energy",
+            },
+        },
+    )
+    assert invalid_preview.status_code == 200, invalid_preview.text
+    assert invalid_preview.json()["is_valid"] is False
+    assert invalid_preview.json()["validation_errors"] == [
+        {
+            "field": "energy_kwh",
+            "column": "Missing energy",
+            "message": "Mapped column was not found in the file",
+            "invalid_count": None,
+        }
+    ]
 
 
 def test_vkallpa_admin_and_company_admin_manage_users_by_scope(client: TestClient):

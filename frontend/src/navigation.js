@@ -65,6 +65,11 @@ export const MENU = [
         path: '/admin/tenant-config',
         moduleKey: 'tenant-settings',
       },
+      {
+        label: 'Fuentes de datos',
+        path: '/admin/data-sources',
+        moduleKey: 'data-sources',
+      },
     ],
   },
 ]
